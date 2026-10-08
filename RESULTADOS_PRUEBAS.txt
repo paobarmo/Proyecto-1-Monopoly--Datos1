@@ -1,0 +1,20 @@
+Prueba realizada con Java 21 y los archivos reales Game, GamePanel,
+CardReader, Bank y ServidorHardware, usando solamente clases auxiliares
+para otras clases de Monopoly que aun no se adjuntaron.
+
+OK: ServidorHardware envia DADOS|x|y
+OK: Dados entre 1 y 6
+OK: Evita segunda tirada durante el movimiento
+OK: GamePanel.applyRoll(int,Runnable) finaliza
+OK: El jugador avanzo exactamente la suma oficial
+OK: GamePanel cambia al siguiente jugador
+OK: RFID responde al Pico incluso fuera de transaccion
+OK: Servidor confirma lectura de RFID
+OK: Bank verifica UID recibido y autoriza pago
+OK: Se descuenta solo una vez al UID correcto
+OK: UID de otro jugador no autoriza cobro
+OK: UID incorrecto no cambia dinero
+OK: Rechaza UID vacio antes del servidor original
+
+TODAS LAS PRUEBAS APROBADAS (13).
+No se probo con hardware real ni con todas las clases de la GUI.
