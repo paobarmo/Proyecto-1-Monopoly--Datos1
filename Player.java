@@ -45,7 +45,7 @@ public class Player {
         this.id = id;
         this.nombre = nombre;
         this.saldo = 1500;
-        this.posicion = 'A';
+        this.posicion = 'C';
 
     }
 

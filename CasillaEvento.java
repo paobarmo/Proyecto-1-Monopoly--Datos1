@@ -7,11 +7,18 @@
  * NOTE: EventManager (or equivalent) is not yet implemented. The call in
  * onLand is left as a placeholder showing the expected integration point.
  */
+import java.util.function.Consumer;
+
 public class CasillaEvento extends Casilla {
-
     private final String eventId;
+    private static MazoEventos mazo = new MazoEventos();
+    private static Consumer<CartaEvento> alMostrarCarta;   // lo configura la UI
 
-    public CasillaEvento(String name, int position, String eventId) {
+    public static void setAlMostrarCarta(Consumer<CartaEvento> listener) {
+        alMostrarCarta = listener;
+    }
+
+    public CasillaEvento(String name, int position, String eventId) { //constructor
         super(name, position);
 
         if (eventId == null || eventId.isBlank()) {
@@ -27,6 +34,8 @@ public class CasillaEvento extends Casilla {
 
     @Override
     public void onLand(Player player, Bank bank) {
+        CartaEvento carta = mazo.sacar();
+        if (alMostrarCarta != null) alMostrarCarta.accept(carta);
         // Pending integration with the future event list/manager.
         // Expected shape once available, e.g.:
         //   EventManager.getInstance().trigger(eventId, player, bank);

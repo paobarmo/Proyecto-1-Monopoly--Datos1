@@ -29,10 +29,25 @@ public class GraphicTest extends JPanel {
 
     private final Board board;
 
+    private CartaEvento cartaMostrada;   // null
+
     public GraphicTest(Board board) {
         this.board = board;
         setPreferredSize(new Dimension(CELL_SIZE * GRID_SIZE, CELL_SIZE * GRID_SIZE));
         setBackground(Color.GRAY);
+
+        CasillaEvento.setAlMostrarCarta(carta -> {
+            cartaMostrada = carta;
+            repaint();
+        });
+
+        addMouseListener(new java.awt.event.MouseAdapter() { // clic para cerrar carta
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                cartaMostrada = null;
+                repaint();
+            }
+        });
     }
 
     private static final int TOKEN_SIZE = 20;
@@ -51,6 +66,7 @@ public class GraphicTest extends JPanel {
         }
 
         drawPlayers(g);   // después de las casillas, para quedar encima
+        drawCarta(g);
     }
 
     private void drawPlayers(Graphics g) {
@@ -146,11 +162,29 @@ public class GraphicTest extends JPanel {
         g.drawString(text, textX, textY);
     }
 
+    private void drawCarta(Graphics g) {
+        if (cartaMostrada == null) return;
+
+        int w = CELL_SIZE * 3, h = CELL_SIZE * 2;
+        int x = (getWidth() - w) / 2, y = (getHeight() - h) / 2;
+
+        g.setColor(Color.WHITE);
+        g.fillRect(x, y, w, h);
+        g.setColor(Color.BLACK);
+        g.drawRect(x, y, w, h);
+
+        FontMetrics m = g.getFontMetrics();
+        String texto = cartaMostrada.getTexto();
+        g.drawString(texto, x + (w - m.stringWidth(texto)) / 2, y + h / 2);
+    }
+
     public static void main(String[] args) {
         Board board = BoardFactory.createSampleBoard();
         board.addPlayer(new Player(0, "Perro"));
         board.addPlayer(new Player(1, "Sombrero"));
-        board.addPlayer(new Player(2, "Carro"), 7);
+        Player player2 = new Player(2, "Carro");
+        board.addPlayer(player2, 7);
+
 
         JFrame frame = new JFrame("Graphic_Test");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -158,5 +192,8 @@ public class GraphicTest extends JPanel {
         frame.pack();
         frame.setLocationRelativeTo(null);
         frame.setVisible(true);
+
+        board.getCasilla(0).onLand(player2, null);
+
     }
 }
