@@ -26,26 +26,11 @@ public class Player {
         }
     }
 
-    void lanzarDados(){
-        if(this.esMiTurno){
-            Dado dado = new Dado();
-            int r1,r2;
-            r1 = dado.lanzar();
-            r2 = dado.lanzar();
-            int resultado = r1 + r2;
-            System.out.println(this.nombre + " rodó un " + resultado);
-        }
-        else{
-            System.out.println("No es tu turno " + this.nombre);
-        }
-    }
-
 
     Player(int id, String nombre) { //Constructor
         this.id = id;
         this.nombre = nombre;
         this.saldo = 1500;
-        this.posicion = 'A';
 
     }
 

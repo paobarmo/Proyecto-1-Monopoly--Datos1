@@ -1,4 +1,6 @@
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -39,13 +41,6 @@ public class Board {
         this.last = null;
         this.size = 0;
         this.playerPositions = new HashMap<>();
-    }
-
-    /**
-     * Returns an unmodifiable view of the players currently on the board.
-     */
-    public java.util.Set<Player> getPlayers() {
-        return java.util.Collections.unmodifiableSet(playerPositions.keySet());
     }
 
     /**
@@ -131,30 +126,39 @@ public class Board {
 
     /**
      * Moves a player forward a given number of steps, wrapping around the
-     * board when the end is reached.
+     * board when the end is reached, and records every square involved.
+     *
+     * Squares the player crosses without stopping are reported as "passed";
+     * the final square is reported as the landing square. The square the
+     * player started on is not included. This lets events such as Go be
+     * triggered both when a player passes the square and when landing on it.
      *
      * @param player the player to move
      * @param steps number of squares to advance (must be positive)
-     * @return the Casilla the player lands on
+     * @return the squares passed (in order) and the square landed on
      */
-    public Casilla movePlayer(Player player, int steps) {
+    public MoveResult movePlayer(Player player, int steps) {
         checkNotEmpty();
 
         Node currentNode = playerPositions.get(player);
         if (currentNode == null) {
             throw new IllegalArgumentException("Player is not on the board.");
         }
-        if (steps < 0) {
-            throw new IllegalArgumentException("Steps cannot be negative.");
+        if (steps < 1) {
+            throw new IllegalArgumentException("Steps must be positive.");
         }
 
+        List<Casilla> passed = new ArrayList<>();
         Node destination = currentNode;
-        for (int i = 0; i < steps; i++) {
+        for (int i = 1; i <= steps; i++) {
             destination = destination.next;
+            if (i < steps) {
+                passed.add(destination.data);
+            }
         }
 
         playerPositions.put(player, destination);
-        return destination.data;
+        return new MoveResult(passed, destination.data);
     }
 
     /**

@@ -79,7 +79,7 @@ public class CasillaPropiedad extends Casilla {
     }
 
     @Override
-    public void onLand(Player player, Bank bank) {
+    public void onLand(Player player, Bank bank, GameLog log) {
         if (!isOwned()) {
             // No owner yet: purchase flow is pending integration with the
             // Player API (e.g. asking the player, checking funds, etc.).
@@ -98,7 +98,13 @@ public class CasillaPropiedad extends Casilla {
         boolean ownerHasFullGroup = false;
 
         int rentDue = getRent(ownerHasFullGroup);
-        bank.transfer(player, owner, rentDue);
+        if (bank.transfer(player, owner, rentDue)) {
+            log.add(log.nameOf(player) + " paga " + rentDue + " de renta a "
+                    + log.nameOf(owner) + " por " + getName() + ".");
+        } else {
+            log.add("No se pudo verificar la tarjeta de " + log.nameOf(player)
+                    + "; no se cobró la renta de " + getName() + ".");
+        }
     }
 
     @Override

@@ -1,13 +1,19 @@
 /**
  * Concrete Casilla representing an event square (e.g. Go, Go to Jail,
- * Draw a Card, Income Tax, etc.). It does not implement any event logic
- * itself; it only identifies which event applies and delegates execution
- * to the event list/manager that will be created later.
+ * Fortune, Pay taxes, etc.). It does not implement any event logic itself;
+ * it only identifies which event applies and delegates execution to
+ * EventManager.
  *
- * NOTE: EventManager (or equivalent) is not yet implemented. The call in
- * onLand is left as a placeholder showing the expected integration point.
+ * The Go event is special: it triggers both when a player lands on the
+ * square and when a player passes through it without stopping.
+ *
+ * Triggering an event may block while waiting for the player's card (RFID
+ * confirmation), so onLand and onPass must not be called from the Swing
+ * event thread.
  */
 public class CasillaEvento extends Casilla {
+
+    private static final String GO_EVENT_ID = "GO";
 
     private final String eventId;
 
@@ -26,10 +32,16 @@ public class CasillaEvento extends Casilla {
     }
 
     @Override
-    public void onLand(Player player, Bank bank) {
-        // Pending integration with the future event list/manager.
-        // Expected shape once available, e.g.:
-        //   EventManager.getInstance().trigger(eventId, player, bank);
+    public void onLand(Player player, Bank bank, GameLog log) {
+        EventManager.trigger(eventId, player, bank, log);
+    }
+
+    @Override
+    public void onPass(Player player, Bank bank, GameLog log) {
+        // Only the Go event also reacts to being passed without stopping.
+        if (GO_EVENT_ID.equals(eventId)) {
+            EventManager.trigger(eventId, player, bank, log);
+        }
     }
 
     @Override

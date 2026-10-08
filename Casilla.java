@@ -1,12 +1,11 @@
 /**
  * Abstract base class representing a square (Casilla) on the Monopoly board.
- * Concrete subclasses will specialize this into normal squares (properties,
- * with name, price, owner, rent, etc.) and event squares (Go, Go to Jail,
- * Draw a Card, etc.).
+ * Concrete subclasses specialize this into normal squares (properties, with
+ * name, price, owner, rent, etc.) and event squares (Go, Go to Jail, Draw a
+ * Card, etc.).
  *
- * NOTE: This class depends on the Player type, which is not yet implemented.
- * A minimal contract is assumed (an object that can own properties and be
- * affected by landing on a square).
+ * Squares never modify balances directly: money moves only through the
+ * Bank. Anything the players should be told is written to the GameLog.
  */
 public abstract class Casilla {
 
@@ -44,24 +43,31 @@ public abstract class Casilla {
     }
 
     /**
-     * Defines what happens when a player lands on this square.
-     * Each subclass must provide its own behavior:
-     *   - Normal squares: charge rent, offer purchase, etc.
-     *   - Event squares: apply their specific effect (go to jail, draw a
-     *     card, collect from Go, etc.).
-     *
-     * A Bank reference is passed in because it is the only authority
-     * allowed to modify player balances; squares must never move money
-     * except through it.
+     * Defines what happens when a player lands on this square (stops on it
+     * at the end of a move).
      *
      * @param player the player who landed on the square
      * @param bank the bank that holds and manages every player's money
+     * @param log the game log, to tell the players what happened
      */
-    public abstract void onLand(Player player, Bank bank);
+    public abstract void onLand(Player player, Bank bank, GameLog log);
 
     /**
-     * Returns a short description of the square, useful for logging or
-     * displaying board state before the graphical part is built.
+     * Called when a player passes through this square during a move without
+     * stopping on it (it is not called for the square the player lands on;
+     * onLand is called for that one). By default nothing happens; squares
+     * that react to being passed (such as Go) override it.
+     *
+     * @param player the player who passed through the square
+     * @param bank the bank that holds and manages every player's money
+     * @param log the game log, to tell the players what happened
+     */
+    public void onPass(Player player, Bank bank, GameLog log) {
+        // Default: passing through a square has no effect.
+    }
+
+    /**
+     * Returns a short description of the square, useful for debugging.
      *
      * @return a textual description of the square
      */
