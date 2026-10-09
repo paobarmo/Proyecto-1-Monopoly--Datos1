@@ -14,7 +14,10 @@ import java.util.concurrent.ExecutionException;
 
 import javax.swing.BorderFactory;
 import javax.swing.JComponent;
-import javax.swing.JButton;
+import javax.swing.AbstractAction;
+import javax.swing.JComponent;
+import javax.swing.KeyStroke;
+import java.awt.event.ActionEvent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
@@ -63,7 +66,11 @@ public class GamePanel extends JPanel {
     private boolean networkPendingPurchase;
     private boolean networkFinished;
     private Consumer<String> networkSender;
-    private JButton rollButton, buyButton, skipButton, finishButton;
+    private int[] networkPositions;
+    private int networkAnimationPlayer = -1;
+    private int networkAnimationFrom;
+    private int networkAnimationTo;
+    private Timer networkStepTimer;
     private String[] networkNames;
 
     public GamePanel(Game game) {
@@ -119,33 +126,62 @@ public class GamePanel extends JPanel {
         turnTimer.stop();
         timerLabel.setText("Esperando turno");
         turnLabel.setText("Esperando servidor");
-        JPanel controls = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 5));
-        controls.setOpaque(false);
-        rollButton = networkButton(controls, "Tirar dados", Protocolo.TIRAR_DADOS);
-        buyButton = networkButton(controls, "Comprar", Protocolo.COMPRAR_PROPIEDAD);
-        skipButton = networkButton(controls, "No comprar", Protocolo.NO_COMPRAR);
-        finishButton = networkButton(controls, "Terminar turno", Protocolo.TERMINAR_TURNO);
-        JPanel bottom = new JPanel(new BorderLayout());
-        bottom.setOpaque(false);
-        bottom.add(controls, BorderLayout.CENTER);
-        add(bottom, BorderLayout.SOUTH);
-        updateNetworkButtons();
+        // Los controles de red se manejan por teclado; no se agregan botones al diseño.
+        registerNetworkKey("SPACE", "tirar", Protocolo.TIRAR_DADOS);
+        registerNetworkKey("C", "comprar", Protocolo.COMPRAR_PROPIEDAD);
+        registerNetworkKey("N", "rechazar", Protocolo.NO_COMPRAR);
+        registerNetworkKey("F", "terminar", Protocolo.TERMINAR_TURNO);
+        game.getLog().add("Red: ESPACIO tirar dados; C comprar; N no comprar; F terminar turno.");
     }
 
-    private JButton networkButton(JPanel holder, String text, String command) {
-        JButton button = new JButton(text);
-        button.addActionListener(e -> networkSender.accept(command));
-        holder.add(button);
-        return button;
+    private void registerNetworkKey(String key, String actionName, String command) {
+        String name = "red_" + actionName;
+        getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(key), name);
+        getActionMap().put(name, new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) {
+                if (canSendNetworkCommand(command)) networkSender.accept(command);
+            }
+        });
     }
 
-    private void updateNetworkButtons() {
-        if (!networkMode) return;
-        boolean myTurn = !networkFinished && networkLocalIndex == networkTurnIndex;
-        rollButton.setEnabled(myTurn && !networkRolled);
-        buyButton.setEnabled(myTurn && networkPendingPurchase);
-        skipButton.setEnabled(myTurn && networkPendingPurchase);
-        finishButton.setEnabled(myTurn && networkRolled && !networkPendingPurchase);
+    private boolean canSendNetworkCommand(String command) {
+        if (!networkMode || networkFinished || networkLocalIndex != networkTurnIndex) return false;
+        if (networkAnimationPlayer >= 0) return false;
+        switch (command) {
+            case Protocolo.TIRAR_DADOS: return !networkRolled;
+            case Protocolo.COMPRAR_PROPIEDAD:
+            case Protocolo.NO_COMPRAR: return networkPendingPurchase;
+            case Protocolo.TERMINAR_TURNO: return networkRolled && !networkPendingPurchase;
+            default: return false;
+        }
+    }
+
+    // Anima únicamente la ficha. El servidor ya ejecutó las reglas del movimiento.
+    private void animateNetworkRoll(int player, int from, int to) {
+        if (networkStepTimer != null) networkStepTimer.stop();
+        networkAnimationPlayer = player;
+        networkAnimationFrom = from;
+        networkAnimationTo = to;
+        final int squares = game.getBoard().getSize();
+        final int steps = (to - from + squares) % squares;
+        final int[] progress = {0};
+        boardPanel.setVisualPosition(player, from);
+        networkStepTimer = new Timer(STEP_DELAY_MS, e -> {
+            progress[0]++;
+            boardPanel.setVisualPosition(player, (from + progress[0]) % squares);
+            if (progress[0] >= steps) {
+                networkStepTimer.stop();
+                networkAnimationPlayer = -1;
+                boardPanel.clearVisualPosition();
+            }
+        });
+        networkStepTimer.setRepeats(true);
+        if (steps == 0) {
+            networkAnimationPlayer = -1;
+            boardPanel.clearVisualPosition();
+        } else {
+            networkStepTimer.start();
+        }
     }
 
     /** Solo se llama desde el hilo de Swing (invokeLater). */
@@ -180,10 +216,12 @@ public class GamePanel extends JPanel {
                         positions[index] = Integer.parseInt(d[3]);
                         playerPanels.get(index).setNetworkState(d[1], Integer.parseInt(d[2]), Boolean.parseBoolean(d[4]));
                     }
+                    networkPositions = positions;
                     boardPanel.setNetworkPositions(positions);
                     break;
                 case "DADOS":
                     networkRolled = true;
+                    animateNetworkRoll(Integer.parseInt(p[1]), Integer.parseInt(p[4]), Integer.parseInt(p[5]));
                     game.getLog().add("Dados: " + p[2] + "+" + p[3] + "; " + p[4] + " → " + p[5]);
                     break;
                 case "PUEDE_COMPRAR":
@@ -219,7 +257,6 @@ public class GamePanel extends JPanel {
         } catch (RuntimeException ex) {
             game.getLog().add("Mensaje de red no reconocido: " + line);
         }
-        updateNetworkButtons();
         repaint();
     }
 
