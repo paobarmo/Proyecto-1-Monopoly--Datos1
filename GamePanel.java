@@ -15,7 +15,6 @@ import java.util.concurrent.ExecutionException;
 import javax.swing.BorderFactory;
 import javax.swing.JComponent;
 import javax.swing.AbstractAction;
-import javax.swing.JComponent;
 import javax.swing.KeyStroke;
 import java.awt.event.ActionEvent;
 import javax.swing.JLabel;
@@ -41,6 +40,10 @@ import javax.swing.Timer;
 public class GamePanel extends JPanel {
 
     private static final int SIDE_COLUMN_WIDTH = 300;
+    private static final Color GAME_BACKGROUND = new Color(31, 23, 42);
+    private static final Color CARD_BACKGROUND = new Color(51, 37, 61);
+    private static final Color GOLD = new Color(222, 180, 116);
+    private static final Color CREAM = new Color(248, 226, 197);
 
     // Movement animation speed: time (in milliseconds) spent on each square.
     private static final int STEP_DELAY_MS = 300;
@@ -76,27 +79,34 @@ public class GamePanel extends JPanel {
     public GamePanel(Game game) {
         this.game = Objects.requireNonNull(game, "game cannot be null.");
 
-        setBackground(Color.GRAY);
+        setBackground(GAME_BACKGROUND);
         setLayout(new BorderLayout());
 
         for (int i = 0; i < game.getPlayerCount(); i++) {
-            playerPanels.add(new PlayerInfoPanel(
+            PlayerInfoPanel playerInfo = new PlayerInfoPanel(
                     game.getPlayer(i),
                     game.getPlayerName(i),
                     PlayerColors.forPlayer(i),
-                    game.getBank()));
+                    game.getBank());
+            playerInfo.setAvatarPlayerIndex(i);
+            playerPanels.add(playerInfo);
         }
 
         turnLabel = new JLabel("", SwingConstants.CENTER);
-        turnLabel.setFont(new Font("SansSerif", Font.BOLD, 36));
-        turnLabel.setForeground(Color.BLACK);
+        turnLabel.setFont(new Font("Georgia", Font.BOLD, 31));
+        turnLabel.setForeground(GOLD);
 
         timerLabel = new JLabel("", SwingConstants.CENTER);
-        timerLabel.setFont(new Font("SansSerif", Font.BOLD, 36));
+        timerLabel.setFont(new Font("Georgia", Font.BOLD, 30));
+        timerLabel.setForeground(CREAM);
 
         JPanel header = new JPanel(new FlowLayout(FlowLayout.CENTER, 30, 0));
-        header.setOpaque(false);
-        header.setBorder(BorderFactory.createEmptyBorder(15, 0, 5, 0));
+        header.setOpaque(true);
+        header.setBackground(CARD_BACKGROUND);
+        header.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 2, 0, GOLD),
+                BorderFactory.createEmptyBorder(15, 10, 13, 10)));
+
         header.add(turnLabel);
         header.add(timerLabel);
 
@@ -190,6 +200,13 @@ public class GamePanel extends JPanel {
         String[] p = line.split("\\|", -1);
         try {
             switch (p[0]) {
+                case "AVATAR":
+                    if (p.length >= 3) {
+                        AvatarSprites.select(Integer.parseInt(p[1]), Integer.parseInt(p[2]));
+                        boardPanel.repaint();
+                        refreshBalances();
+                    }
+                    break;
                 case "INICIO":
                     networkNames = p[1].split(",", -1);
                     game.getLog().add("Partida compartida iniciada: " + p[1]);
@@ -402,7 +419,7 @@ public class GamePanel extends JPanel {
 
     private void updateTimerLabel() {
         timerLabel.setText(String.format("%d:%02d", secondsLeft / 60, secondsLeft % 60));
-        timerLabel.setForeground(secondsLeft <= WARNING_SECONDS ? new Color(180, 0, 0) : Color.BLACK);
+        timerLabel.setForeground(secondsLeft <= WARNING_SECONDS ? new Color(255, 140, 134) : CREAM);
     }
 
     private void updateTurnLabel() {
@@ -432,7 +449,11 @@ public class GamePanel extends JPanel {
     private JPanel buildRightColumn() {
         JPanel column = newSideColumn();
         addToColumn(column, 0, GridBagConstraints.NORTH, playerPanel(1));   // Player 2
-        addToColumn(column, 1, GridBagConstraints.CENTER, new JailPanel()); // Jail
+        JailPanel jail = new JailPanel();
+        jail.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(GOLD, 2),
+                BorderFactory.createEmptyBorder(6, 6, 6, 6)));
+        addToColumn(column, 1, GridBagConstraints.CENTER, jail); // Jail
         addToColumn(column, 2, GridBagConstraints.SOUTH, playerPanel(3));   // Player 4
         return column;
     }

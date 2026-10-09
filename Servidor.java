@@ -53,6 +53,7 @@ public class Servidor {
     private boolean iniciada;
     private boolean terminada;
     private boolean dadosLanzados;
+    private final int[] avatars = {0, 1, 2, 3};
     private boolean pendienteCompra;
     private int numTurno;
 
@@ -136,6 +137,9 @@ public class Servidor {
             jugadores.add(m);
             todos.add(m);
             m.enviar("BIENVENIDO|" + m.indice + "|" + m.nombre);
+            for (int i = 0; i < jugadores.size(); i++) {
+                m.enviar("AVATAR|" + i + "|" + avatars[i]);
+            }
             broadcast("LOBBY|" + jugadores.size() + "|" + nJugadores + "|" + nombres());
             if (jugadores.size() == nJugadores) {
                 iniciarPartida();
@@ -308,6 +312,17 @@ public class Servidor {
             }
             synchronized (lock) {
                 switch (cmd) {
+                    case Protocolo.ELEGIR_AVATAR:
+                        if (m.indice < 0 || p.length < 2) {
+                            throw new ErrorJuego("Avatar inválido");
+                        }
+                        int avatar = Integer.parseInt(p[1]);
+                        if (avatar < 0 || avatar >= 5) {
+                            throw new ErrorJuego("Avatar inválido");
+                        }
+                        avatars[m.indice] = avatar;
+                        broadcast("AVATAR|" + m.indice + "|" + avatar);
+                        break;
                     case Protocolo.TIRAR_DADOS:
                         tirarDados(m);
                         break;

@@ -19,7 +19,9 @@ public class PlayerInfoPanel extends JPanel {
     private static final int PANEL_HEIGHT = 120;
     private static final int CIRCLE_DIAMETER = 56;
     private static final int PADDING = 20;
-    private static final Color BACKGROUND = new Color(220, 220, 220);
+    private static final Color BACKGROUND = new Color(52, 38, 62);
+    private static final Color GOLD = new Color(222, 180, 116);
+    private static final Color CREAM = new Color(248, 226, 197);
 
     private final Player player;
     private final String name;
@@ -28,6 +30,9 @@ public class PlayerInfoPanel extends JPanel {
     private String networkName;
     private Integer networkBalance;
     private Boolean networkActive;
+    private int avatarPlayerIndex = -1;
+
+    public void setAvatarPlayerIndex(int index) { avatarPlayerIndex = index; repaint(); }
 
     public PlayerInfoPanel(Player player, String name, Color playerColor, Bank bank) {
         this.player = Objects.requireNonNull(player, "player cannot be null.");
@@ -58,25 +63,33 @@ public class PlayerInfoPanel extends JPanel {
         int height = getHeight();
 
         g2.setColor(BACKGROUND);
-        g2.fillRect(0, 0, width, height);
-        g2.setColor(Color.BLACK);
-        g2.drawRect(0, 0, width - 1, height - 1);
+        g2.fillRoundRect(1, 1, width - 3, height - 3, 20, 20);
+        g2.setColor(GOLD);
+        g2.setStroke(new java.awt.BasicStroke(2f));
+        g2.drawRoundRect(2, 2, width - 5, height - 5, 20, 20);
 
         int circleY = (height - CIRCLE_DIAMETER) / 2;
-        g2.setColor(playerColor);
-        g2.fillOval(PADDING, circleY, CIRCLE_DIAMETER, CIRCLE_DIAMETER);
-        g2.setColor(Color.BLACK);
-        g2.drawOval(PADDING, circleY, CIRCLE_DIAMETER, CIRCLE_DIAMETER);
+        if (avatarPlayerIndex >= 0) {
+            AvatarSprites.draw(g2, avatarPlayerIndex, PADDING, circleY, CIRCLE_DIAMETER);
+        } else {
+            g2.setColor(playerColor);
+            g2.fillOval(PADDING, circleY, CIRCLE_DIAMETER, CIRCLE_DIAMETER);
+            g2.setColor(Color.BLACK);
+            g2.drawOval(PADDING, circleY, CIRCLE_DIAMETER, CIRCLE_DIAMETER);
+        }
 
         int textX = PADDING + CIRCLE_DIAMETER + 16;
 
-        g2.setFont(new Font("SansSerif", Font.BOLD, 22));
+        g2.setColor(GOLD);
+        g2.setFont(new Font("Georgia", Font.BOLD, 21));
         g2.drawString(networkName == null ? name : networkName, textX, (int) (height * 0.42));
 
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 20));
+        g2.setColor(CREAM);
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 18));
         g2.drawString("Balance: $" + (networkBalance == null ? bank.getBalance(player) : networkBalance),
                 textX, (int) (height * 0.72));
         if (Boolean.FALSE.equals(networkActive)) {
+            g2.setColor(new Color(255, 147, 143));
             g2.setFont(new Font("SansSerif", Font.BOLD, 12));
             g2.drawString("ELIMINADO", textX, height - 5);
         }

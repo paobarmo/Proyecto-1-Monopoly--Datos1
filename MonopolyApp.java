@@ -2,7 +2,6 @@ import java.awt.CardLayout;
 import java.awt.Dimension;
 import java.io.IOException;
 import javax.swing.JFrame;
-import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
@@ -24,11 +23,7 @@ public class MonopolyApp {
         PlayerSelectionPanel selection = new PlayerSelectionPanel();
 
         selection.setOnStart(playerCount -> {
-            Object[] choices = {"Crear partida", "Unirse a partida", "Jugar local", "Cancelar"};
-            int option = JOptionPane.showOptionDialog(frame,
-                    "¿Cómo quieres jugar?", "Monopoly Halloween",
-                    JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
-                    null, choices, choices[0]);
+            int option = HalloweenDialogs.modo(frame);
             if (option == 2) {
                 // Se conserva literalmente el comportamiento anterior.
                 Game game = new Game(playerCount, new ConsoleCardReader());
@@ -38,17 +33,17 @@ public class MonopolyApp {
                 new DiceTestWindow(frame, gamePanel::applyRoll).setVisible(true);
             } else if (option == 0 || option == 1) {
                 boolean host = option == 0;
-                String hostAddress = host ? "localhost" : JOptionPane.showInputDialog(frame,
+                String hostAddress = host ? "localhost" : HalloweenDialogs.entrada(frame,
                         "IP de la computadora que creó la partida:", "172.20.10.2");
                 if (hostAddress == null || hostAddress.trim().isEmpty()) return;
-                String name = JOptionPane.showInputDialog(frame, "Tu nombre de jugador:", "Jugador");
+                String name = HalloweenDialogs.entrada(frame, "Tu nombre de jugador:", "Jugador");
                 if (name == null || name.trim().isEmpty()) return;
                 if (host) {
-                    int confirmation = JOptionPane.showConfirmDialog(frame,
+                    boolean confirmation = HalloweenDialogs.confirmar(frame, "Crear partida",
                             "El servidor esperará " + playerCount + " jugadores.\n" +
-                            "Tus amigos deberán conectarse a tu dirección IPv4, puerto 5000.\n" +
-                            "¿Crear la partida?", "Crear partida", JOptionPane.OK_CANCEL_OPTION);
-                    if (confirmation != JOptionPane.OK_OPTION) return;
+                                    "Tus amigos deberán conectarse a tu dirección IPv4, puerto 5000.\n" +
+                                    "¿Crear la partida?");
+                    if (!confirmation) return;
                 }
                 connectNetwork(frame, screens, layout, playerCount, host, hostAddress.trim(), name.trim());
             }
@@ -62,16 +57,14 @@ public class MonopolyApp {
     }
 
     private static void connectNetwork(JFrame frame, JPanel screens, CardLayout layout,
-            int desiredPlayers, boolean hosting, String hostAddress, String name) {
+                                       int desiredPlayers, boolean hosting, String hostAddress, String name) {
         final GamePanel[] remotePanel = new GamePanel[1];
         final Cliente[] client = new Cliente[1];
         final int[] ownIndex = {-1};
         final javax.swing.JDialog waiting = new javax.swing.JDialog(frame, "Sala de espera", false);
         final javax.swing.JLabel progress = new javax.swing.JLabel(
                 "Conectando a " + hostAddress + ":5000 ...", javax.swing.SwingConstants.CENTER);
-        waiting.add(progress);
-        waiting.setSize(440, 130);
-        waiting.setLocationRelativeTo(frame);
+        HalloweenDialogs.estilizarEspera(waiting, progress);
         waiting.setVisible(true);
 
         new SwingWorker<Cliente, Void>() {
@@ -106,12 +99,12 @@ public class MonopolyApp {
                                 remotePanel[0].receiveNetworkMessage(message);
                             } else if ("ERROR".equals(parts[0])) {
                                 waiting.dispose();
-                                JOptionPane.showMessageDialog(frame, message, "Servidor", JOptionPane.ERROR_MESSAGE);
+                                HalloweenDialogs.mensaje(frame, "Servidor", message);
                             }
                         }), error -> SwingUtilities.invokeLater(() -> {
-                            waiting.dispose();
-                            JOptionPane.showMessageDialog(frame, "Se perdió la conexión con el servidor.");
-                        }));
+                    waiting.dispose();
+                    HalloweenDialogs.mensaje(frame, "Conexión perdida", "Se perdió la conexión con el servidor.");
+                }));
                 client[0] = connection;
                 connection.conectar(name);
                 return connection;
@@ -120,9 +113,8 @@ public class MonopolyApp {
                 try { get(); }
                 catch (Exception ex) {
                     waiting.dispose();
-                    JOptionPane.showMessageDialog(frame, "No se pudo conectar: " +
-                            (ex.getCause() == null ? ex.getMessage() : ex.getCause().getMessage()),
-                            "Error de conexión", JOptionPane.ERROR_MESSAGE);
+                    HalloweenDialogs.mensaje(frame, "Error de conexión", "No se pudo conectar: " +
+                            (ex.getCause() == null ? ex.getMessage() : ex.getCause().getMessage()));
                 }
             }
         }.execute();

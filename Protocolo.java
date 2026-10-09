@@ -34,6 +34,7 @@
  */
 public final class Protocolo {
     public static final String CONECTAR = "CONECTAR";
+    public static final String ELEGIR_AVATAR = "ELEGIR_AVATAR";
     public static final String DISPOSITIVO = "DISPOSITIVO";
     public static final String RFID = "RFID";
     public static final String TIRAR_DADOS = "TIRAR_DADOS";

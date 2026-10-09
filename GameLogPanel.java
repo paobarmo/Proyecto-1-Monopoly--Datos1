@@ -4,6 +4,9 @@ import java.awt.Font;
 import java.util.Objects;
 
 import javax.swing.BorderFactory;
+import javax.swing.JPanel;
+import javax.swing.JLabel;
+import java.awt.BorderLayout;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
@@ -30,10 +33,18 @@ public class GameLogPanel extends JScrollPane {
         textArea.setLineWrap(true);
         textArea.setWrapStyleWord(true);
         textArea.setFont(new Font("SansSerif", Font.PLAIN, 16));
-        textArea.setBackground(new Color(235, 235, 235));
+        textArea.setForeground(new Color(248, 226, 197));
+        textArea.setCaretColor(new Color(248, 226, 197));
+        textArea.setBackground(new Color(45, 34, 55));
+        getViewport().setBackground(new Color(45, 34, 55));
         textArea.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
-        setBorder(BorderFactory.createLineBorder(Color.BLACK));
+        setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(new Color(222, 180, 116), 2),
+                "  HISTORIAL  ",
+                javax.swing.border.TitledBorder.LEADING,
+                javax.swing.border.TitledBorder.TOP,
+                new Font("Georgia", Font.BOLD, 17), new Color(222, 180, 116)));
         setPreferredSize(new Dimension(280, 320));
 
         for (String message : log.getMessages()) {

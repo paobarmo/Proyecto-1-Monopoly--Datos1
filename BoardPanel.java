@@ -1,8 +1,14 @@
+import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.Shape;
+import java.awt.geom.Ellipse2D;
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Image;
+import javax.swing.ImageIcon;
+import java.net.URL;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.util.ArrayList;
@@ -50,6 +56,10 @@ public class BoardPanel extends JPanel {
     private final Game game;
     private final Board board;
 
+    // Solo imagen decorativa en el centro del tablero (no afecta casillas ni reglas).
+    private final Image centerBackground;
+
+
     // Used by the movement animation: while a player is being animated, they
     // are drawn on this square instead of the one the Board says they are on.
     private int visualPlayerIndex = -1;
@@ -59,6 +69,8 @@ public class BoardPanel extends JPanel {
     public BoardPanel(Game game) {
         this.game = Objects.requireNonNull(game, "game cannot be null.");
         this.board = game.getBoard();
+        URL backgroundUrl = BoardPanel.class.getResource("/images/fondo_centro.jpg");
+        centerBackground = backgroundUrl == null ? null : new ImageIcon(backgroundUrl).getImage();
 
         if (board.getSize() != EXPECTED_SQUARES) {
             throw new IllegalArgumentException(
@@ -122,11 +134,31 @@ public class BoardPanel extends JPanel {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
+        drawCenterBackground(g2, originX, originY, unit);
+
         for (int i = 0; i < board.getSize(); i++) {
             drawSquare(g2, board.getCasilla(i), i, originX, originY, unit, positions);
         }
 
         g2.dispose();
+    }
+
+    // Rellena únicamente el hueco central de 15 x 15 unidades.
+    // Recorta la fotografía al centro para conservar sus proporciones.
+    private void drawCenterBackground(Graphics2D g2, int originX, int originY, int unit) {
+        if (centerBackground == null) return;
+        int imageWidth = centerBackground.getWidth(this);
+        int imageHeight = centerBackground.getHeight(this);
+        if (imageWidth <= 0 || imageHeight <= 0) return;
+
+        int x = originX + CORNER_UNITS * unit;
+        int y = originY + CORNER_UNITS * unit;
+        int size = (BOARD_UNITS - 2 * CORNER_UNITS) * unit;
+        int crop = Math.min(imageWidth, imageHeight);
+        int sourceX = (imageWidth - crop) / 2;
+        int sourceY = (imageHeight - crop) / 2;
+        g2.drawImage(centerBackground, x, y, x + size, y + size,
+                sourceX, sourceY, sourceX + crop, sourceY + crop, this);
     }
 
     private void drawSquare(Graphics2D g2, Casilla casilla, int index,
@@ -283,13 +315,11 @@ public class BoardPanel extends JPanel {
     // --------------------------------------------------------------- tokens
 
     private int tokenDiameter(int unit) {
-        return Math.max(8, (int) (unit * 0.65));
+        // Ligeramente mayor que antes, sin alterar el tamaño de las casillas.
+        return Math.max(20, (int) (unit * 1.08));
     }
 
-    /**
-     * Draws a circle in each player's color for every player standing on the
-     * given square, in a centered row (or column) inside the area.
-     */
+    /** Dibuja los avatares como fichas redondas, solo en el tablero. */
     private void drawTokens(Graphics2D g2, Rectangle area, int squareIndex,
                             int[] positions, int unit) {
         List<Integer> playersHere = new ArrayList<>();
@@ -298,31 +328,44 @@ public class BoardPanel extends JPanel {
                 playersHere.add(i);
             }
         }
-        if (playersHere.isEmpty()) {
-            return;
-        }
+        if (playersHere.isEmpty()) return;
 
-        int diameter = tokenDiameter(unit);
-        int step = diameter + TOKEN_SPACING;
         int count = playersHere.size();
-        int totalLength = count * diameter + (count - 1) * TOKEN_SPACING;
         boolean horizontal = area.width >= area.height;
+        int availableLength = horizontal ? area.width : area.height;
+        int availableThickness = horizontal ? area.height : area.width;
 
-        int startX = horizontal
-                ? area.x + (area.width - totalLength) / 2
+        // Evita que se amontonen las fichas cuando coinciden varios jugadores.
+        int diameter = Math.min(tokenDiameter(unit),
+                Math.min(Math.max(8, availableThickness - 4),
+                        Math.max(8, (availableLength - (count - 1) * TOKEN_SPACING - 4) / count)));
+        int step = diameter + TOKEN_SPACING;
+        int totalLength = count * diameter + (count - 1) * TOKEN_SPACING;
+        int startX = horizontal ? area.x + (area.width - totalLength) / 2
                 : area.x + (area.width - diameter) / 2;
-        int startY = horizontal
-                ? area.y + (area.height - diameter) / 2
+        int startY = horizontal ? area.y + (area.height - diameter) / 2
                 : area.y + (area.height - totalLength) / 2;
 
         for (int n = 0; n < count; n++) {
             int x = horizontal ? startX + n * step : startX;
             int y = horizontal ? startY : startY + n * step;
+            int player = playersHere.get(n);
 
-            g2.setColor(PlayerColors.forPlayer(playersHere.get(n)));
-            g2.fillOval(x, y, diameter, diameter);
-            g2.setColor(Color.BLACK);
-            g2.drawOval(x, y, diameter, diameter);
+            Graphics2D token = (Graphics2D) g2.create();
+            token.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            // La imagen sigue dibujándose mediante AvatarSprites: no cambia la selección.
+            Shape circle = new Ellipse2D.Double(x, y, diameter, diameter);
+            token.setColor(new Color(12, 8, 22, 100));
+            token.fillOval(x + 1, y + 2, diameter, diameter);
+            token.setColor(new Color(47, 31, 57));
+            token.fill(circle);
+            token.setClip(circle);
+            AvatarSprites.draw(token, player, x, y, diameter);
+            token.setClip(null);
+            token.setStroke(new BasicStroke(Math.max(1f, diameter * 0.075f)));
+            token.setColor(new Color(219, 178, 111));
+            token.draw(new Ellipse2D.Double(x + 1, y + 1, diameter - 2, diameter - 2));
+            token.dispose();
         }
     }
 
