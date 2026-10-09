@@ -9,10 +9,12 @@ import java.awt.Insets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.concurrent.ExecutionException;
 
 import javax.swing.BorderFactory;
 import javax.swing.JComponent;
+import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
@@ -53,6 +55,17 @@ public class GamePanel extends JPanel {
     private boolean animating = false;
     private int secondsLeft;
 
+    // En red: estado solo de presentación; las reglas las ejecuta Servidor.
+    private boolean networkMode;
+    private int networkLocalIndex = -1;
+    private int networkTurnIndex = -1;
+    private boolean networkRolled;
+    private boolean networkPendingPurchase;
+    private boolean networkFinished;
+    private Consumer<String> networkSender;
+    private JButton rollButton, buyButton, skipButton, finishButton;
+    private String[] networkNames;
+
     public GamePanel(Game game) {
         this.game = Objects.requireNonNull(game, "game cannot be null.");
 
@@ -91,6 +104,123 @@ public class GamePanel extends JPanel {
         add(boardPanel, BorderLayout.CENTER);
         add(buildLeftColumn(), BorderLayout.WEST);
         add(buildRightColumn(), BorderLayout.EAST);
+    }
+
+    /** Inicializa el mismo tablero original en modo cliente de red. */
+    public GamePanel(Game game, int localIndex, Consumer<String> sender) {
+        this(game);
+        this.networkMode = true;
+        this.networkLocalIndex = localIndex;
+        this.networkSender = Objects.requireNonNull(sender);
+        this.networkNames = new String[game.getPlayerCount()];
+        for (int i = 0; i < networkNames.length; i++) {
+            networkNames[i] = game.getPlayerName(i);
+        }
+        turnTimer.stop();
+        timerLabel.setText("Esperando turno");
+        turnLabel.setText("Esperando servidor");
+        JPanel controls = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 5));
+        controls.setOpaque(false);
+        rollButton = networkButton(controls, "Tirar dados", Protocolo.TIRAR_DADOS);
+        buyButton = networkButton(controls, "Comprar", Protocolo.COMPRAR_PROPIEDAD);
+        skipButton = networkButton(controls, "No comprar", Protocolo.NO_COMPRAR);
+        finishButton = networkButton(controls, "Terminar turno", Protocolo.TERMINAR_TURNO);
+        JPanel bottom = new JPanel(new BorderLayout());
+        bottom.setOpaque(false);
+        bottom.add(controls, BorderLayout.CENTER);
+        add(bottom, BorderLayout.SOUTH);
+        updateNetworkButtons();
+    }
+
+    private JButton networkButton(JPanel holder, String text, String command) {
+        JButton button = new JButton(text);
+        button.addActionListener(e -> networkSender.accept(command));
+        holder.add(button);
+        return button;
+    }
+
+    private void updateNetworkButtons() {
+        if (!networkMode) return;
+        boolean myTurn = !networkFinished && networkLocalIndex == networkTurnIndex;
+        rollButton.setEnabled(myTurn && !networkRolled);
+        buyButton.setEnabled(myTurn && networkPendingPurchase);
+        skipButton.setEnabled(myTurn && networkPendingPurchase);
+        finishButton.setEnabled(myTurn && networkRolled && !networkPendingPurchase);
+    }
+
+    /** Solo se llama desde el hilo de Swing (invokeLater). */
+    public void receiveNetworkMessage(String line) {
+        if (!networkMode) return;
+        String[] p = line.split("\\|", -1);
+        try {
+            switch (p[0]) {
+                case "INICIO":
+                    networkNames = p[1].split(",", -1);
+                    game.getLog().add("Partida compartida iniciada: " + p[1]);
+                    break;
+                case "TURNO":
+                    networkTurnIndex = Integer.parseInt(p[1]);
+                    networkRolled = false;
+                    networkPendingPurchase = false;
+                    secondsLeft = Game.TURN_TIME_SECONDS;
+                    timerLabel.setText(String.format("%d:%02d", secondsLeft / 60, secondsLeft % 60));
+                    if (!turnTimer.isRunning()) turnTimer.start();
+                    turnLabel.setText("Turno de " + p[2]);
+                    game.getLog().add("Turno de " + p[2]);
+                    break;
+                case "ESTADO":
+                    networkTurnIndex = Integer.parseInt(p[1]);
+                    String[] jugadores = p[2].split(";", -1);
+                    int[] positions = new int[game.getPlayerCount()];
+                    for (String j : jugadores) {
+                        String[] d = j.split(",", -1);
+                        if (d.length < 5) continue;
+                        int index = Integer.parseInt(d[0]);
+                        if (index < 0 || index >= positions.length) continue;
+                        positions[index] = Integer.parseInt(d[3]);
+                        playerPanels.get(index).setNetworkState(d[1], Integer.parseInt(d[2]), Boolean.parseBoolean(d[4]));
+                    }
+                    boardPanel.setNetworkPositions(positions);
+                    break;
+                case "DADOS":
+                    networkRolled = true;
+                    game.getLog().add("Dados: " + p[2] + "+" + p[3] + "; " + p[4] + " → " + p[5]);
+                    break;
+                case "PUEDE_COMPRAR":
+                    networkPendingPurchase = true;
+                    game.getLog().add("Puedes comprar " + p[1] + " por $" + p[2]);
+                    break;
+                case "COMPRA":
+                    networkPendingPurchase = false;
+                    game.getLog().add(p[2]);
+                    break;
+                case "OK":
+                    if (p.length > 1 && "NO_COMPRAR".equals(p[1])) networkPendingPurchase = false;
+                    break;
+                case "FIN":
+                    networkFinished = true;
+                    turnTimer.stop();
+                    timerLabel.setText("Fin de la partida");
+                    game.getLog().add("Ganador: " + p[2]);
+                    javax.swing.JOptionPane.showMessageDialog(this, "Ganador: " + p[2]);
+                    break;
+                case "LOG": case "EVENTO": case "ERROR":
+                    game.getLog().add(p.length > 1 ? p[1] : line);
+                    if ("ERROR".equals(p[0])) javax.swing.JOptionPane.showMessageDialog(this, p[1]);
+                    break;
+                case "ELIMINADO":
+                    game.getLog().add("Eliminado: " + p[2]);
+                    break;
+                case "ESPERANDO_TARJETA":
+                    game.getLog().add("Esperando tarjeta RFID de jugador " + (Integer.parseInt(p[1]) + 1));
+                    break;
+                default: break;
+            }
+        } catch (RuntimeException ex) {
+            game.getLog().add("Mensaje de red no reconocido: " + line);
+        }
+        updateNetworkButtons();
+        repaint();
     }
 
     /**
@@ -210,7 +340,11 @@ public class GamePanel extends JPanel {
         updateTimerLabel();
 
         if (secondsLeft <= 0) {
-            handleTurnTimeout();
+            if (networkMode) {
+                turnTimer.stop(); // el servidor termina el turno, no el cliente
+            } else {
+                handleTurnTimeout();
+            }
         }
     }
 

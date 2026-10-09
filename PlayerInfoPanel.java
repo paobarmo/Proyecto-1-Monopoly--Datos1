@@ -25,6 +25,9 @@ public class PlayerInfoPanel extends JPanel {
     private final String name;
     private final Color playerColor;
     private final Bank bank;
+    private String networkName;
+    private Integer networkBalance;
+    private Boolean networkActive;
 
     public PlayerInfoPanel(Player player, String name, Color playerColor, Bank bank) {
         this.player = Objects.requireNonNull(player, "player cannot be null.");
@@ -33,6 +36,14 @@ public class PlayerInfoPanel extends JPanel {
         this.bank = Objects.requireNonNull(bank, "bank cannot be null.");
 
         setPreferredSize(new Dimension(PANEL_WIDTH, PANEL_HEIGHT));
+    }
+
+    /** Sobrescribe solo lo mostrado, no modifica el banco local. */
+    public void setNetworkState(String newName, int balance, boolean active) {
+        networkName = newName;
+        networkBalance = balance;
+        networkActive = active;
+        repaint();
     }
 
     @Override
@@ -60,10 +71,15 @@ public class PlayerInfoPanel extends JPanel {
         int textX = PADDING + CIRCLE_DIAMETER + 16;
 
         g2.setFont(new Font("SansSerif", Font.BOLD, 22));
-        g2.drawString(name, textX, (int) (height * 0.42));
+        g2.drawString(networkName == null ? name : networkName, textX, (int) (height * 0.42));
 
         g2.setFont(new Font("SansSerif", Font.PLAIN, 20));
-        g2.drawString("Balance: $" + bank.getBalance(player), textX, (int) (height * 0.72));
+        g2.drawString("Balance: $" + (networkBalance == null ? bank.getBalance(player) : networkBalance),
+                textX, (int) (height * 0.72));
+        if (Boolean.FALSE.equals(networkActive)) {
+            g2.setFont(new Font("SansSerif", Font.BOLD, 12));
+            g2.drawString("ELIMINADO", textX, height - 5);
+        }
 
         g2.dispose();
     }

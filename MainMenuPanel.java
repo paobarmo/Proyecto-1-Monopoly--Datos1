@@ -19,13 +19,10 @@ public class MainMenuPanel extends JPanel {
 
     private static final Color TITLE_COLOR = new Color(255, 140, 0);
 
-    public MainMenuPanel(Runnable onStart) {
-        this(onStart, () -> {});
-    }
+    public MainMenuPanel(Runnable onStart) { this(onStart, null); }
 
-    public MainMenuPanel(Runnable onStart, Runnable onNetworkTest) {
+    public MainMenuPanel(Runnable onStart, Runnable onNetwork) {
         Objects.requireNonNull(onStart, "onStart cannot be null.");
-        Objects.requireNonNull(onNetworkTest, "onNetworkTest cannot be null.");
 
         setBackground(Color.GRAY);
         setLayout(new GridBagLayout());
@@ -49,12 +46,13 @@ public class MainMenuPanel extends JPanel {
         constraints.gridy = 1;
         constraints.insets = new Insets(0, 0, 0, 0);
         add(startButton, constraints);
-
-        JButton networkButton = new JButton("Probar conexión de red");
-        networkButton.setFont(new Font("SansSerif", Font.BOLD, 22));
-        networkButton.addActionListener(e -> onNetworkTest.run());
-        constraints.gridy = 2;
-        constraints.insets = new Insets(25, 0, 0, 0);
-        add(networkButton, constraints);
+        if (onNetwork != null) {
+            JButton networkButton = new JButton("Jugar por red (puerto 5000)");
+            networkButton.setFont(new Font("SansSerif", Font.BOLD, 24));
+            networkButton.addActionListener(e -> onNetwork.run());
+            constraints.gridy = 2;
+            constraints.insets = new Insets(20, 0, 0, 0);
+            add(networkButton, constraints);
+        }
     }
 }

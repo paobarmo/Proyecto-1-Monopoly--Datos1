@@ -1,0 +1,22 @@
+MONOPOLY HALLOWEEN - INTEGRACIÓN INICIAL CON EL TABLERO ORIGINAL
+
+1. Haz una copia de tu proyecto (o commit previo) antes de reemplazar nada.
+2. Sustituye únicamente: MonopolyApp.java, GamePanel.java, BoardPanel.java y PlayerInfoPanel.java.
+3. MANTÉN el resto de tu proyecto original. En particular: MainMenuPanel, PlayerSelectionPanel,
+   Servidor, Cliente, Protocolo, Game, MotorJuegoReal, RfidSocketReader y las casillas.
+4. Ejecuta MonopolyApp.main(). El menú original sigue igual.
+5. Iniciar -> selección 2/3/4 -> Empezar -> Crear partida / Unirse / Jugar local.
+6. El anfitrión elige cantidad de jugadores; su computadora inicia Servidor en 5000.
+7. El anfitrión conecta a localhost; los invitados ingresan la IPv4 de la computadora anfitriona.
+8. Cada computadora que juegue debe ejecutar MonopolyApp.main() y elegir Unirse.
+9. Hasta que se unan todos los jugadores elegidos, la sala seguirá esperando.
+
+CONSIDERACIONES:
+- La pantalla de partida reutiliza el BoardPanel y PlayerInfoPanel ORIGINALES.
+- El servidor es dueño de dados, saldos, turno, cobros y compras; los clientes solo los muestran.
+- Los dados en modo red se ejecutan con los botones inferiores, no con DiceTestWindow.
+- El movimiento se actualiza al recibir ESTADO (no tiene aún la animación paso por paso en red).
+- Compras de propiedades y saldos se envían desde el servidor; las clases de casillas originales no se tocan.
+- Si usa hardware RFID físico, aún habría que exponer configuración --hardware del servidor.
+- El uso desde hotspot móvil puede depender del firewall y del aislamiento de clientes del teléfono.
+- Esta entrega se comprobó a nivel de código; prueba junto al proyecto completo antes de hacer commit.

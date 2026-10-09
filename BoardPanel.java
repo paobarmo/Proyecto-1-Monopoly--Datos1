@@ -54,6 +54,7 @@ public class BoardPanel extends JPanel {
     // are drawn on this square instead of the one the Board says they are on.
     private int visualPlayerIndex = -1;
     private int visualPosition = 0;
+    private int[] networkPositions;
 
     public BoardPanel(Game game) {
         this.game = Objects.requireNonNull(game, "game cannot be null.");
@@ -85,6 +86,12 @@ public class BoardPanel extends JPanel {
         repaint();
     }
 
+    /** Solo presentación: el servidor es dueño de las posiciones. */
+    public void setNetworkPositions(int[] positions) {
+        this.networkPositions = positions == null ? null : positions.clone();
+        repaint();
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -103,6 +110,9 @@ public class BoardPanel extends JPanel {
         int[] positions = new int[game.getPlayerCount()];
         for (int i = 0; i < positions.length; i++) {
             positions[i] = game.getPlayerPosition(i);
+        }
+        if (networkPositions != null && networkPositions.length == positions.length) {
+            System.arraycopy(networkPositions, 0, positions, 0, positions.length);
         }
         if (visualPlayerIndex >= 0 && visualPlayerIndex < positions.length) {
             positions[visualPlayerIndex] = visualPosition;
