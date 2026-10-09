@@ -143,6 +143,14 @@ public class Game {
     }
 
     /**
+     * Moves the current player forward without involving the dice (e.g. a card).
+     * Same rules as moveCurrentPlayer: no square events are triggered here.
+     */
+    public MoveResult advanceCurrentPlayer(int steps) {
+        return board.movePlayer(getCurrentPlayer(), steps);
+    }
+
+    /**
      * Triggers the "passed through" reaction of a square for the current
      * player (e.g. Go).
      *

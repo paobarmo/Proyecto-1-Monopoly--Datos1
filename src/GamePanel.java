@@ -20,6 +20,7 @@ import javax.swing.SwingWorker;
 import javax.swing.Timer;
 import javax.swing.SwingUtilities;
 import java.util.concurrent.CountDownLatch;
+import java.util.function.Supplier;
 
 /**
  * Main game screen: gray background, on top a text saying whose turn it is
@@ -55,6 +56,9 @@ public class GamePanel extends JPanel {
     private boolean animating = false;
     private int secondsLeft;
 
+    // Steps requested by a card during the current move (0 = none).
+    private volatile int pendingExtraSteps = 0;
+
     public GamePanel(Game game) {
         this.game = Objects.requireNonNull(game, "game cannot be null.");
 
@@ -89,6 +93,7 @@ public class GamePanel extends JPanel {
 
         boardPanel = new BoardPanel(game);
         game.getLog().addCardListener(this::showCard);
+        game.getLog().addMoveListener(steps -> pendingExtraSteps = steps);
 
         add(header, BorderLayout.NORTH);
         add(boardPanel, BorderLayout.CENTER);
@@ -122,13 +127,15 @@ public class GamePanel extends JPanel {
             return;
         }
         animating = true;
+        startMove(() -> game.moveCurrentPlayer(steps), onFinished);
+    }
 
+    // Moves the current player with the given mover and animates the result.
+    private void startMove(Supplier<MoveResult> mover, Runnable onFinished) {
         int playerIndex = game.getCurrentPlayerIndex();
         int startPosition = game.getPlayerPosition(playerIndex);
 
-        // The Board position changes right away; the screen is then shown
-        // moving from the start square to the final one.
-        MoveResult result = game.moveCurrentPlayer(steps);
+        MoveResult result = mover.get();
 
         List<Casilla> path = new ArrayList<>(result.getPassedSquares());
         path.add(result.getLandingSquare());
@@ -136,7 +143,6 @@ public class GamePanel extends JPanel {
         boardPanel.setVisualPosition(playerIndex, startPosition);
         animateStep(playerIndex, path, 0, onFinished);
     }
-
     /**
      * Shows one step of the move after a short pause, triggers the square's
      * reaction (off the Swing thread, since it may wait for the player's
@@ -151,7 +157,7 @@ public class GamePanel extends JPanel {
             if (isLanding) {
                 runInBackground(
                         () -> game.triggerLanded(square),
-                        () -> finishMove(onFinished));
+                        () -> afterLanding(onFinished));
             } else {
                 runInBackground(
                         () -> game.triggerPassed(square),
@@ -160,6 +166,18 @@ public class GamePanel extends JPanel {
         });
         timer.setRepeats(false);
         timer.start();
+    }
+
+    // After landing: if a card asked to keep moving, do it; otherwise end the turn.
+    private void afterLanding(Runnable onFinished) {
+        int extra = pendingExtraSteps;
+        pendingExtraSteps = 0;
+
+        if (extra > 0) {
+            startMove(() -> game.advanceCurrentPlayer(extra), onFinished);
+        } else {
+            finishMove(onFinished);
+        }
     }
 
     private void finishMove(Runnable onFinished) {

@@ -14,14 +14,14 @@ import java.util.concurrent.ThreadLocalRandom;
 public final class CartaEvento {
 
     // Acción por defecto: no hace nada (pendiente de definir).
-    private static final GameEvent SIN_EFECTO = (player, bank, log) -> { };
+    // Avanza 3 casillas: pide el movimiento; GamePanel lo anima y dispara las casillas.
+    private static final GameEvent AVANZAR_3 = (player, bank, log) -> {
+        log.add(log.nameOf(player) + " avanza 3 casillas.");
+        log.requestExtraMove(3);
+    };
 
     private static final List<CartaEvento> MAZO = List.of(
-            new CartaEvento(1, "Carta 1 (texto pendiente)", SIN_EFECTO),
-            new CartaEvento(2, "Carta 2 (texto pendiente)", SIN_EFECTO),
-            new CartaEvento(3, "Carta 3 (texto pendiente)", SIN_EFECTO),
-            new CartaEvento(4, "Carta 4 (texto pendiente)", SIN_EFECTO),
-            new CartaEvento(5, "Carta 5 (texto pendiente)", SIN_EFECTO));
+            new CartaEvento(1, "Avanza 3 casillas.", AVANZAR_3));
 
     private final int numero;
     private final String texto;

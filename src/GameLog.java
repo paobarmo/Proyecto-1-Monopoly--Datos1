@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.IntConsumer;
 
 /**
  * Chronological record of what happens in the game, in plain text, meant to
@@ -29,6 +30,8 @@ public class GameLog {
     private final Map<Player, String> playerNames = new HashMap<>();
 
     private final List<Consumer<CartaEvento>> cardListeners = new CopyOnWriteArrayList<>();
+
+    private final List<IntConsumer> moveListeners = new CopyOnWriteArrayList<>();
 
     /**
      * Associates a display name with a player, so messages can mention them.
@@ -68,6 +71,24 @@ public class GameLog {
     /** Registra quién quiere mostrar las cartas que se saquen. */
     public void addCardListener(Consumer<CartaEvento> listener) {
         cardListeners.add(Objects.requireNonNull(listener, "listener cannot be null."));
+    }
+
+    /** Registra quién atiende los movimientos extra pedidos por cartas/eventos. */
+    public void addMoveListener(IntConsumer listener) {
+        moveListeners.add(Objects.requireNonNull(listener, "listener cannot be null."));
+    }
+
+    /**
+     * Pide que el jugador actual avance más casillas cuando termine el
+     * movimiento en curso. No mueve nada por sí mismo.
+     */
+    public void requestExtraMove(int steps) {
+        if (steps < 1) {
+            throw new IllegalArgumentException("Steps must be positive.");
+        }
+        for (IntConsumer listener : moveListeners) {
+            listener.accept(steps);
+        }
     }
 
     /**
