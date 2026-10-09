@@ -25,6 +25,7 @@ public final class EventManager {
     static {
         EVENTS.put("GO", EventManager::goEvent);
         EVENTS.put("PAY_TAXES", EventManager::payTaxesEvent);
+        EVENTS.put("FORTUNE", EventManager::fortuneEvent);
     }
 
     private EventManager() {
@@ -73,6 +74,16 @@ public final class EventManager {
     }
 
     // --------------------------------------------------------------- helpers
+
+
+    // El jugador saca una carta de Fortuna: se muestra y luego se aplica.
+    private static void fortuneEvent(Player player, Bank bank, GameLog log) {
+        CartaEvento card = CartaEvento.sortear();
+
+        log.add(log.nameOf(player) + " saca una carta de Fortuna.");
+        log.showCard(card);          // espera a que el jugador cierre la carta
+        card.aplicar(player, bank, log);
+    }
 
     /**
      * Runs a bank transaction, which asks for the player's card. While the

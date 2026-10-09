@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Chronological record of what happens in the game, in plain text, meant to
@@ -26,6 +27,8 @@ public class GameLog {
     private final List<String> messages = new ArrayList<>();
     private final List<Consumer<String>> listeners = new ArrayList<>();
     private final Map<Player, String> playerNames = new HashMap<>();
+
+    private final List<Consumer<CartaEvento>> cardListeners = new CopyOnWriteArrayList<>();
 
     /**
      * Associates a display name with a player, so messages can mention them.
@@ -60,6 +63,22 @@ public class GameLog {
      */
     public synchronized void addListener(Consumer<String> listener) {
         listeners.add(Objects.requireNonNull(listener, "listener cannot be null."));
+    }
+
+    /** Registra quién quiere mostrar las cartas que se saquen. */
+    public void addCardListener(Consumer<CartaEvento> listener) {
+        cardListeners.add(Objects.requireNonNull(listener, "listener cannot be null."));
+    }
+
+    /**
+     * Muestra una carta a los jugadores. Los listeners pueden bloquear hasta
+     * que la carta se cierre, así que no llamar desde el hilo de Swing.
+     */
+    public void showCard(CartaEvento card) {
+        Objects.requireNonNull(card, "card cannot be null.");
+        for (Consumer<CartaEvento> listener : cardListeners) {
+            listener.accept(card);
+        }
     }
 
     /**

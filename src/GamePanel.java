@@ -18,6 +18,8 @@ import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingWorker;
 import javax.swing.Timer;
+import javax.swing.SwingUtilities;
+import java.util.concurrent.CountDownLatch;
 
 /**
  * Main game screen: gray background, on top a text saying whose turn it is
@@ -86,6 +88,7 @@ public class GamePanel extends JPanel {
         resetTurnTimer();
 
         boardPanel = new BoardPanel(game);
+        game.getLog().addCardListener(this::showCard);
 
         add(header, BorderLayout.NORTH);
         add(boardPanel, BorderLayout.CENTER);
@@ -294,5 +297,19 @@ public class GamePanel extends JPanel {
         constraints.anchor = anchor;
         constraints.insets = new Insets(15, 10, 15, 10);
         column.add(content, constraints);
+    }
+
+    // Se llama desde el hilo de fondo del evento: muestra la carta en el hilo
+// de Swing y espera a que el jugador la cierre.
+    // Se llama desde el hilo de fondo del evento: dibuja la carta sobre el
+// tablero (hilo de Swing) y espera a que el jugador la cierre.
+    private void showCard(CartaEvento card) {
+        CountDownLatch closed = new CountDownLatch(1);
+        SwingUtilities.invokeLater(() -> boardPanel.showCard(card, closed::countDown));
+        try {
+            closed.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

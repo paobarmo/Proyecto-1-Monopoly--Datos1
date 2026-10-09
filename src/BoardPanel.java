@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Objects;
 
 import javax.swing.JPanel;
+import java.awt.GridBagLayout;
 
 /**
  * Draws the board in the center of the screen, reading every square from
@@ -63,6 +64,7 @@ public class BoardPanel extends JPanel {
             throw new IllegalArgumentException(
                     "BoardPanel requires exactly " + EXPECTED_SQUARES + " squares.");
         }
+        setLayout(new GridBagLayout()); // centra la carta cuando se muestra
         setOpaque(false);
     }
 
@@ -82,6 +84,22 @@ public class BoardPanel extends JPanel {
      */
     public void clearVisualPosition() {
         this.visualPlayerIndex = -1;
+        repaint();
+    }
+
+    /**
+     * Muestra la carta en el centro del tablero hasta que el jugador pulse
+     * Aceptar; entonces la quita y ejecuta onClose. Llamar desde el hilo de Swing.
+     */
+    public void showCard(CartaEvento card, Runnable onClose) {
+        removeAll();
+        add(new CartaEventoPanel(card, () -> {
+            removeAll();
+            revalidate();
+            repaint();
+            onClose.run();
+        }));
+        revalidate();
         repaint();
     }
 
