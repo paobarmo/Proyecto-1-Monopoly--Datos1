@@ -82,9 +82,14 @@ public class GameLog {
      * Pide que el jugador actual avance más casillas cuando termine el
      * movimiento en curso. No mueve nada por sí mismo.
      */
+    /**
+     * Pide que el jugador actual se mueva más casillas cuando termine el
+     * movimiento en curso: positivo avanza, negativo retrocede. No mueve
+     * nada por sí mismo.
+     */
     public void requestExtraMove(int steps) {
-        if (steps < 1) {
-            throw new IllegalArgumentException("Steps must be positive.");
+        if (steps == 0) {
+            throw new IllegalArgumentException("Steps cannot be zero.");
         }
         for (IntConsumer listener : moveListeners) {
             listener.accept(steps);

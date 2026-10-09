@@ -20,8 +20,15 @@ public final class CartaEvento {
         log.requestExtraMove(3);
     };
 
+    private static final GameEvent RETROCEDER_3 = (player, bank, log) -> {
+        log.add(log.nameOf(player) + " retrocede 3 casillas.");
+        log.requestExtraMove(-3);
+    };
+
     private static final List<CartaEvento> MAZO = List.of(
-            new CartaEvento(1, "Avanza 3 casillas.", AVANZAR_3));
+            new CartaEvento(1, "Avanza 3 casillas.", AVANZAR_3),
+            new CartaEvento(2, "Retrocede 3 casillas.", RETROCEDER_3));
+
 
     private final int numero;
     private final String texto;

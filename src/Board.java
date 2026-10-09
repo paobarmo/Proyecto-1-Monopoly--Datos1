@@ -156,6 +156,38 @@ public class Board {
                 passed.add(destination.data);
             }
         }
+        playerPositions.put(player, destination);
+        return new MoveResult(passed, destination.data);
+    }
+
+    /**
+     * Moves a player backward a given number of steps, wrapping around the
+     * board. Works like movePlayer but in the opposite direction: the squares
+     * crossed are reported as "passed" (in order) and the last one is the
+     * landing square. The starting square is not included.
+     *
+     * @param player the player to move
+     * @param steps number of squares to go back (must be positive)
+     */
+    public MoveResult movePlayerBackward(Player player, int steps) {
+        checkNotEmpty();
+
+        Node currentNode = playerPositions.get(player);
+        if (currentNode == null) {
+            throw new IllegalArgumentException("Player is not on the board.");
+        }
+        if (steps < 1) {
+            throw new IllegalArgumentException("Steps must be positive.");
+        }
+
+        List<Casilla> passed = new ArrayList<>();
+        Node destination = currentNode;
+        for (int i = 1; i <= steps; i++) {
+            destination = destination.prev;
+            if (i < steps) {
+                passed.add(destination.data);
+            }
+        }
 
         playerPositions.put(player, destination);
         return new MoveResult(passed, destination.data);

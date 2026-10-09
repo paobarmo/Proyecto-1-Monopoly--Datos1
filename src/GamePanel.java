@@ -127,11 +127,13 @@ public class GamePanel extends JPanel {
             return;
         }
         animating = true;
-        startMove(() -> game.moveCurrentPlayer(steps), onFinished);
+        startMove(() -> game.moveCurrentPlayer(steps), true, onFinished);
     }
 
     // Moves the current player with the given mover and animates the result.
-    private void startMove(Supplier<MoveResult> mover, Runnable onFinished) {
+    // Moves the current player with the given mover and animates the result.
+// triggerPasses: whether squares crossed without stopping react (false when going backward).
+    private void startMove(Supplier<MoveResult> mover, boolean triggerPasses, Runnable onFinished) {
         int playerIndex = game.getCurrentPlayerIndex();
         int startPosition = game.getPlayerPosition(playerIndex);
 
@@ -141,14 +143,11 @@ public class GamePanel extends JPanel {
         path.add(result.getLandingSquare());
 
         boardPanel.setVisualPosition(playerIndex, startPosition);
-        animateStep(playerIndex, path, 0, onFinished);
+        animateStep(playerIndex, path, 0, triggerPasses, onFinished);
     }
-    /**
-     * Shows one step of the move after a short pause, triggers the square's
-     * reaction (off the Swing thread, since it may wait for the player's
-     * card) and, when that is done, continues with the next step.
-     */
-    private void animateStep(int playerIndex, List<Casilla> path, int stepIndex, Runnable onFinished) {
+
+    private void animateStep(int playerIndex, List<Casilla> path, int stepIndex,
+                             boolean triggerPasses, Runnable onFinished) {
         Timer timer = new Timer(STEP_DELAY_MS, e -> {
             Casilla square = path.get(stepIndex);
             boardPanel.setVisualPosition(playerIndex, square.getPosition());
@@ -158,10 +157,12 @@ public class GamePanel extends JPanel {
                 runInBackground(
                         () -> game.triggerLanded(square),
                         () -> afterLanding(onFinished));
-            } else {
+            } else if (triggerPasses) {
                 runInBackground(
                         () -> game.triggerPassed(square),
-                        () -> animateStep(playerIndex, path, stepIndex + 1, onFinished));
+                        () -> animateStep(playerIndex, path, stepIndex + 1, true, onFinished));
+            } else {
+                animateStep(playerIndex, path, stepIndex + 1, false, onFinished);
             }
         });
         timer.setRepeats(false);
@@ -169,12 +170,15 @@ public class GamePanel extends JPanel {
     }
 
     // After landing: if a card asked to keep moving, do it; otherwise end the turn.
+    // After landing: if a card asked to keep moving, do it; otherwise end the turn.
     private void afterLanding(Runnable onFinished) {
         int extra = pendingExtraSteps;
         pendingExtraSteps = 0;
 
         if (extra > 0) {
-            startMove(() -> game.advanceCurrentPlayer(extra), onFinished);
+            startMove(() -> game.advanceCurrentPlayer(extra), true, onFinished);
+        } else if (extra < 0) {
+            startMove(() -> game.retreatCurrentPlayer(-extra), false, onFinished);
         } else {
             finishMove(onFinished);
         }

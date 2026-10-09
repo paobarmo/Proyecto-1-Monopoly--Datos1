@@ -151,6 +151,15 @@ public class Game {
     }
 
     /**
+     * Moves the current player backward without involving the dice (e.g. a
+     * card). No square events are triggered here; the caller decides which
+     * ones to trigger (when going backward, passed squares are NOT triggered).
+     */
+    public MoveResult retreatCurrentPlayer(int steps) {
+        return board.movePlayerBackward(getCurrentPlayer(), steps);
+    }
+
+    /**
      * Triggers the "passed through" reaction of a square for the current
      * player (e.g. Go).
      *
