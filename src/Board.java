@@ -1,7 +1,7 @@
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Represents the Monopoly game board as a circular doubly linked list.
@@ -40,7 +40,8 @@ public class Board {
         this.first = null;
         this.last = null;
         this.size = 0;
-        this.playerPositions = new HashMap<>();
+        // Read by the screen while a background thread may remove a player.
+        this.playerPositions = new ConcurrentHashMap<>();
     }
 
     /**
@@ -173,6 +174,41 @@ public class Board {
             throw new IllegalArgumentException("Player is not on the board.");
         }
         return node.data;
+    }
+
+    /**
+     * Removes a player from the board (e.g. when they lose the game). Their
+     * token stops being on any square.
+     *
+     * @param player the player to remove
+     */
+    public void removePlayer(Player player) {
+        playerPositions.remove(player);
+    }
+
+    /**
+     * Returns every property square of the given color group, in board order.
+     *
+     * @param colorGroup the color group to look for
+     * @return the properties of that group (empty if there are none)
+     */
+    public List<CasillaPropiedad> getPropertiesByColorGroup(String colorGroup) {
+        List<CasillaPropiedad> properties = new ArrayList<>();
+        if (first == null) {
+            return properties;
+        }
+
+        Node current = first;
+        for (int i = 0; i < size; i++) {
+            if (current.data instanceof CasillaPropiedad) {
+                CasillaPropiedad property = (CasillaPropiedad) current.data;
+                if (property.getColorGroup().equals(colorGroup)) {
+                    properties.add(property);
+                }
+            }
+            current = current.next;
+        }
+        return properties;
     }
 
     /**

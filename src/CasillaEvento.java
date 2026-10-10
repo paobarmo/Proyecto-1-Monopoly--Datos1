@@ -32,15 +32,15 @@ public class CasillaEvento extends Casilla {
     }
 
     @Override
-    public void onLand(Player player, Bank bank, GameLog log) {
-        EventManager.trigger(eventId, player, bank, log);
+    public void onLand(Player player, Game game) {
+        EventManager.trigger(eventId, player, game);
     }
 
     @Override
-    public void onPass(Player player, Bank bank, GameLog log) {
+    public void onPass(Player player, Game game) {
         // Only the Go event also reacts to being passed without stopping.
         if (GO_EVENT_ID.equals(eventId)) {
-            EventManager.trigger(eventId, player, bank, log);
+            EventManager.trigger(eventId, player, game);
         }
     }
 

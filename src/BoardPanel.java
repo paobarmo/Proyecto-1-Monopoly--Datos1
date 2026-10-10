@@ -102,9 +102,10 @@ public class BoardPanel extends JPanel {
         // Read every player's position once per paint.
         int[] positions = new int[game.getPlayerCount()];
         for (int i = 0; i < positions.length; i++) {
-            positions[i] = game.getPlayerPosition(i);
+            positions[i] = game.isEliminated(i) ? -1 : game.getPlayerPosition(i);
         }
-        if (visualPlayerIndex >= 0 && visualPlayerIndex < positions.length) {
+        if (visualPlayerIndex >= 0 && visualPlayerIndex < positions.length
+                && !game.isEliminated(visualPlayerIndex)) {
             positions[visualPlayerIndex] = visualPosition;
         }
 
@@ -142,6 +143,7 @@ public class BoardPanel extends JPanel {
             g2.fill(strip);
             g2.setColor(Color.BLACK);
             g2.draw(strip);
+            drawOwnerMarker(g2, strip, property);
 
             textArea = withoutBand(textArea, inward, stripThickness);
         }
@@ -272,13 +274,39 @@ public class BoardPanel extends JPanel {
 
     // --------------------------------------------------------------- tokens
 
+    // Small circle, in the owner's color, on the color strip of an owned property.
+    private void drawOwnerMarker(Graphics2D g2, Rectangle strip, CasillaPropiedad property) {
+        Player owner = property.getOwner();
+        if (owner == null) {
+            return;
+        }
+
+        int ownerIndex = game.indexOf(owner);
+        if (ownerIndex < 0) {
+            return;
+        }
+
+        int diameter = Math.max(6, (int) (Math.min(strip.width, strip.height) * 0.7));
+        int x = strip.x + (strip.width - diameter) / 2;
+        int y = strip.y + (strip.height - diameter) / 2;
+
+        if (!Decoration.paintAvatar(g2, ownerIndex, x, y, diameter)) {
+            g2.setColor(PlayerColors.forPlayer(ownerIndex));
+            g2.fillOval(x, y, diameter, diameter);
+        }
+        g2.setColor(Color.BLACK);
+        g2.drawOval(x, y, diameter, diameter);
+    }
+
     private int tokenDiameter(int unit) {
-        return Math.max(8, (int) (unit * 0.65));
+        return Math.max(10, (int) (unit * 1.1));
     }
 
     /**
-     * Draws a circle in each player's color for every player standing on the
-     * given square, in a centered row (or column) inside the area.
+     * Draws the token (the player's image in a circle, or a circle in the
+     * player's color if there is no image) for every player standing on the
+     * given square, in a centered row (or column) inside the area. If they do
+     * not all fit, they overlap a little.
      */
     private void drawTokens(Graphics2D g2, Rectangle area, int squareIndex,
                             int[] positions, int unit) {
@@ -293,10 +321,17 @@ public class BoardPanel extends JPanel {
         }
 
         int diameter = tokenDiameter(unit);
-        int step = diameter + TOKEN_SPACING;
         int count = playersHere.size();
-        int totalLength = count * diameter + (count - 1) * TOKEN_SPACING;
         boolean horizontal = area.width >= area.height;
+
+        // Distance between the starts of two neighboring tokens; smaller than
+        // the diameter (overlapping) when the row would not fit in the square.
+        int length = (horizontal ? area.width : area.height) - 2 * TOKEN_PADDING;
+        int step = diameter + TOKEN_SPACING;
+        if (count > 1 && (count - 1) * step + diameter > length) {
+            step = Math.max(1, (length - diameter) / (count - 1));
+        }
+        int totalLength = (count - 1) * step + diameter;
 
         int startX = horizontal
                 ? area.x + (area.width - totalLength) / 2
@@ -309,8 +344,11 @@ public class BoardPanel extends JPanel {
             int x = horizontal ? startX + n * step : startX;
             int y = horizontal ? startY : startY + n * step;
 
-            g2.setColor(PlayerColors.forPlayer(playersHere.get(n)));
-            g2.fillOval(x, y, diameter, diameter);
+            int playerIndex = playersHere.get(n);
+            if (!Decoration.paintAvatar(g2, playerIndex, x, y, diameter)) {
+                g2.setColor(PlayerColors.forPlayer(playerIndex));
+                g2.fillOval(x, y, diameter, diameter);
+            }
             g2.setColor(Color.BLACK);
             g2.drawOval(x, y, diameter, diameter);
         }

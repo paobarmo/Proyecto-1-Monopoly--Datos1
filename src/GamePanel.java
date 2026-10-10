@@ -3,19 +3,26 @@ import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Graphics;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.Window;
+import java.awt.event.ActionEvent;
+import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 
+import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.KeyStroke;
 import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.Timer;
 
@@ -26,12 +33,15 @@ import javax.swing.Timer;
  * top-right, Player 3 bottom-left, Player 4 bottom-right), the game log on
  * the left side and the jail on the right side (apart from the board).
  *
- * Only the players taking part in the game are shown.
- *
  * Turn clock: each turn lasts Game.TURN_TIME_SECONDS. The clock is paused
- * while a move is in progress (including while waiting for a player's
- * card). If it reaches zero before the player acts, the turn is lost and
- * passes to the next player.
+ * while a move is in progress (including while waiting for a player's card
+ * or a purchase answer) and while the "End game?" window is open. If it
+ * reaches zero before the player acts, the turn is lost and passes to the
+ * next player.
+ *
+ * The Esc key opens the "End game?" window. The game finishes when only one
+ * player is left or when the players choose "End"; then the end-of-game
+ * window is shown and, after "Ok", the exit action is run (see setOnExit).
  */
 public class GamePanel extends JPanel {
 
@@ -51,7 +61,10 @@ public class GamePanel extends JPanel {
     private final List<PlayerInfoPanel> playerPanels = new ArrayList<>();
 
     private boolean animating = false;
+    private boolean paused = false;
+    private boolean stopped = false;
     private int secondsLeft;
+    private Runnable onExit;
 
     public GamePanel(Game game) {
         this.game = Objects.requireNonNull(game, "game cannot be null.");
@@ -60,11 +73,14 @@ public class GamePanel extends JPanel {
         setLayout(new BorderLayout());
 
         for (int i = 0; i < game.getPlayerCount(); i++) {
+            final int playerIndex = i;
             playerPanels.add(new PlayerInfoPanel(
                     game.getPlayer(i),
+                    playerIndex,
                     game.getPlayerName(i),
                     PlayerColors.forPlayer(i),
-                    game.getBank()));
+                    game.getBank(),
+                    () -> game.isEliminated(playerIndex)));
         }
 
         turnLabel = new JLabel("", SwingConstants.CENTER);
@@ -91,6 +107,26 @@ public class GamePanel extends JPanel {
         add(boardPanel, BorderLayout.CENTER);
         add(buildLeftColumn(), BorderLayout.WEST);
         add(buildRightColumn(), BorderLayout.EAST);
+
+        game.setPurchasePrompt(this::askToBuy);
+        registerEscapeKey();
+    }
+
+    /**
+     * Sets the action to run after the end-of-game window is closed with
+     * "Ok" (normally: go back to the main menu).
+     */
+    public void setOnExit(Runnable onExit) {
+        this.onExit = onExit;
+    }
+
+    /**
+     * Stops the turn clock and ignores anything still in progress. Called
+     * when the game is over.
+     */
+    public void stop() {
+        stopped = true;
+        turnTimer.stop();
     }
 
     /**
@@ -107,15 +143,15 @@ public class GamePanel extends JPanel {
      * Applies a dice result: moves the current player square by square on
      * screen, triggering each square's reaction as the player goes through
      * it, and ends the turn when the player lands. If a reaction needs the
-     * player's card, the movement waits until it is resolved. Ignored if a
-     * move is already in progress.
+     * player's card or an answer, the movement waits until it is resolved.
+     * Ignored if a move is already in progress.
      *
      * @param steps the dice total (number of squares to advance)
      * @param onFinished run once the move and the turn change are complete
      */
     public void applyRoll(int steps, Runnable onFinished) {
         Objects.requireNonNull(onFinished, "onFinished cannot be null.");
-        if (animating) {
+        if (animating || stopped) {
             return;
         }
         animating = true;
@@ -141,6 +177,10 @@ public class GamePanel extends JPanel {
      */
     private void animateStep(int playerIndex, List<Casilla> path, int stepIndex, Runnable onFinished) {
         Timer timer = new Timer(STEP_DELAY_MS, e -> {
+            if (stopped) {
+                return;
+            }
+
             Casilla square = path.get(stepIndex);
             boardPanel.setVisualPosition(playerIndex, square.getPosition());
 
@@ -161,11 +201,17 @@ public class GamePanel extends JPanel {
 
     private void finishMove(Runnable onFinished) {
         boardPanel.clearVisualPosition();
+        refreshBalances();
+        animating = false;
+
+        if (game.isGameOver()) {
+            finishGame();
+            return;
+        }
+
         game.endTurn();
         updateTurnLabel();
-        refreshBalances();
         resetTurnTimer();
-        animating = false;
         onFinished.run();
     }
 
@@ -193,17 +239,93 @@ public class GamePanel extends JPanel {
                     game.getLog().add("Error: " + e.getCause());
                 }
 
+                if (stopped) {
+                    return; // the game ended while this was in progress
+                }
+
                 refreshBalances();
                 thenOnSwingThread.run();
             }
         }.execute();
     }
 
+    // ----------------------------------------------------- purchase pop-up
+
+    /**
+     * Asks the player whether to buy a property, using a pop-up window.
+     * Called from a background thread (while a square's reaction runs); the
+     * window is shown on the Swing thread and this method waits for the answer.
+     */
+    private boolean askToBuy(String playerName, CasillaPropiedad property) {
+        boolean[] answer = {false};
+
+        try {
+            SwingUtilities.invokeAndWait(() ->
+                    answer[0] = GameDialogs.confirmPurchase(window(), playerName, property));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (InvocationTargetException e) {
+            throw new IllegalStateException("Could not show the purchase window.", e.getCause());
+        }
+
+        return answer[0];
+    }
+
+    // ------------------------------------------------------- end of the game
+
+    private void registerEscapeKey() {
+        getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke("ESCAPE"), "endGame");
+        getActionMap().put("endGame", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                askToEndGame();
+            }
+        });
+    }
+
+    private void askToEndGame() {
+        if (stopped || paused) {
+            return;
+        }
+
+        paused = true; // the turn clock waits while the window is open
+        boolean end = GameDialogs.confirmEndGame(window());
+        paused = false;
+
+        if (end) {
+            finishGame();
+        }
+    }
+
+    // Shows the result and returns to wherever onExit leads (the main menu).
+    private void finishGame() {
+        stop();
+
+        int winner = game.getWinnerIndex();
+        String winnerName = winner < 0 ? null : game.getPlayerName(winner);
+
+        if (winnerName == null) {
+            game.getLog().add("La partida termina en empate.");
+        } else {
+            game.getLog().add("¡" + winnerName + " gana la partida!");
+        }
+
+        GameDialogs.showGameOver(window(), winnerName);
+
+        if (onExit != null) {
+            onExit.run();
+        }
+    }
+
+    private Window window() {
+        return SwingUtilities.getWindowAncestor(this);
+    }
+
     // ------------------------------------------------------------ turn clock
 
     private void onTimerTick() {
-        if (animating) {
-            return; // the clock waits while a move (or a card confirmation) is in progress
+        if (animating || paused || stopped) {
+            return; // the clock waits while a move or a window is in progress
         }
 
         secondsLeft--;
@@ -236,6 +358,14 @@ public class GamePanel extends JPanel {
 
     private void updateTurnLabel() {
         turnLabel.setText("Player " + (game.getCurrentPlayerIndex() + 1) + " turn");
+    }
+
+    // The background image (if any) is drawn centered over the gray, behind
+    // everything else.
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
+        Decoration.paintBackground(g, getWidth(), getHeight());
     }
 
     // --------------------------------------------------------------- layout

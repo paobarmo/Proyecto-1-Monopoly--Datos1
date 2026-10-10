@@ -2,6 +2,7 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.Graphics;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.util.function.Consumer;
@@ -74,6 +75,7 @@ public class PlayerSelectionPanel extends JPanel {
             slots[i] = new PlayerSlotPanel(
                     "Jugador " + (i + 1),
                     PlayerColors.forPlayer(i),
+                    i,
                     i < MIN_PLAYERS,
                     () -> handleSlotClick(index));
             grid.add(slots[i]);
@@ -120,5 +122,13 @@ public class PlayerSelectionPanel extends JPanel {
         for (int i = 0; i < MAX_PLAYERS; i++) {
             slots[i].setActive(i < playerCount);
         }
+    }
+
+    // The background image (if any) is drawn centered over the gray, behind
+    // everything else.
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
+        Decoration.paintBackground(g, getWidth(), getHeight());
     }
 }

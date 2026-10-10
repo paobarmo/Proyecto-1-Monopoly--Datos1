@@ -1,6 +1,7 @@
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.Graphics;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
@@ -44,5 +45,13 @@ public class MainMenuPanel extends JPanel {
         constraints.gridy = 1;
         constraints.insets = new Insets(0, 0, 0, 0);
         add(startButton, constraints);
+    }
+
+    // The background image (if any) is drawn centered over the gray, behind
+    // everything else.
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
+        Decoration.paintBackground(g, getWidth(), getHeight());
     }
 }

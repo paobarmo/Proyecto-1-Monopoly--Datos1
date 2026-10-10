@@ -20,7 +20,8 @@ import javax.swing.WindowConstants;
  * the dice are handled separately (not by this project), so this class and
  * the block in MonopolyApp that creates it must be removed.
  *
- * The button is disabled while the
+ * It reuses the dice logic (Dado), summing two rolls in the same way the
+ * teammate's Player.lanzarDados() did. The button is disabled while the
  * move is being shown on screen, and enabled again when it finishes.
  *
  * The window is not modal (the game can still be clicked) and cannot be

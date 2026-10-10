@@ -4,8 +4,12 @@
  * name, price, owner, rent, etc.) and event squares (Go, Go to Jail, Draw a
  * Card, etc.).
  *
- * Squares never modify balances directly: money moves only through the
- * Bank. Anything the players should be told is written to the GameLog.
+ * Squares receive the Game when something happens on them, so they can use
+ * its Bank (the only authority over money), its GameLog (to tell the players
+ * what happened) and anything else they need.
+ *
+ * Because reactions may wait for the player's card or for a pop-up answer,
+ * onLand and onPass must not be called from the Swing event thread.
  */
 public abstract class Casilla {
 
@@ -47,10 +51,9 @@ public abstract class Casilla {
      * at the end of a move).
      *
      * @param player the player who landed on the square
-     * @param bank the bank that holds and manages every player's money
-     * @param log the game log, to tell the players what happened
+     * @param game the game, to reach the bank, the log, etc.
      */
-    public abstract void onLand(Player player, Bank bank, GameLog log);
+    public abstract void onLand(Player player, Game game);
 
     /**
      * Called when a player passes through this square during a move without
@@ -59,10 +62,9 @@ public abstract class Casilla {
      * that react to being passed (such as Go) override it.
      *
      * @param player the player who passed through the square
-     * @param bank the bank that holds and manages every player's money
-     * @param log the game log, to tell the players what happened
+     * @param game the game, to reach the bank, the log, etc.
      */
-    public void onPass(Player player, Bank bank, GameLog log) {
+    public void onPass(Player player, Game game) {
         // Default: passing through a square has no effect.
     }
 

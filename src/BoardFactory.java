@@ -44,16 +44,16 @@ public class BoardFactory {
         addProperty(board, "Apple Town", "Orange", 200, 100, 130);
         addProperty(board, "Spooky house", "Orange", 200, 100, 130);
         addEvent(board, "Pay taxes", "PAY_TAXES");
-        addProperty(board, "Pumpkin Spice", "Orange", 250, 120, 150);
+        addProperty(board, "Spicy Pumpkin", "Orange", 250, 120, 150);
         addProperty(board, "Scary Tree", "Orange", 250, 120, 150);
 
         addEvent(board, "Go to Jail", "GO_TO_JAIL");
 
         addProperty(board, "Spirit Chest", "Yellow", 400, 180, 200);
-        addProperty(board, "Undead Parade", "Yellow", 400, 180, 200);
+        addProperty(board, "Spirit Chest", "Yellow", 400, 180, 200);
         addEvent(board, "Fortune", "FORTUNE");
-        addProperty(board, "Candy Street", "Yellow", 400, 200, 230);
-        addProperty(board, "Ghostly Church", "Yellow", 400, 200, 230);
+        addProperty(board, "Spirit Chest", "Yellow", 400, 200, 230);
+        addProperty(board, "Spirit Chest", "Yellow", 400, 200, 230);
 
         return board;
     }

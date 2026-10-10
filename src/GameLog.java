@@ -45,6 +45,18 @@ public class GameLog {
     }
 
     /**
+     * Returns the player's name starting with a lowercase letter, to use it
+     * after an article (e.g. "El " + lowerNameOf(player) gives "El jugador 1").
+     */
+    public synchronized String lowerNameOf(Player player) {
+        String name = nameOf(player);
+        if (name.isEmpty()) {
+            return name;
+        }
+        return Character.toLowerCase(name.charAt(0)) + name.substring(1);
+    }
+
+    /**
      * Adds a message to the end of the log and notifies every listener.
      */
     public synchronized void add(String message) {
