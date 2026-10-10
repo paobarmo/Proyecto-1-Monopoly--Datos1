@@ -194,6 +194,23 @@ public class Board {
     }
 
     /**
+     * Moves a player directly to the square at the given index (index taken
+     * modulo the board size), without crossing the squares in between. The
+     * result has no passed squares, only the landing square.
+     */
+    public MoveResult movePlayerTo(Player player, int index) {
+        checkNotEmpty();
+
+        if (!playerPositions.containsKey(player)) {
+            throw new IllegalArgumentException("Player is not on the board.");
+        }
+
+        Node destination = findNode(index);
+        playerPositions.put(player, destination);
+        return new MoveResult(new ArrayList<>(), destination.data);
+    }
+
+    /**
      * Returns the Casilla a player is currently standing on.
      *
      * @param player the player to query

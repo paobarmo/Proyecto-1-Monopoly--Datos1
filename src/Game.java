@@ -160,6 +160,20 @@ public class Game {
     }
 
     /**
+     * Sends the current player directly to the square with the given name
+     * (case-insensitive), without crossing any square on the way. No square
+     * events are triggered here.
+     */
+    public MoveResult teleportCurrentPlayer(String squareName) {
+        for (int i = 0; i < board.getSize(); i++) {
+            if (board.getCasilla(i).getName().equalsIgnoreCase(squareName)) {
+                return board.movePlayerTo(getCurrentPlayer(), i);
+            }
+        }
+        throw new IllegalArgumentException("No square named: " + squareName);
+    }
+
+    /**
      * Triggers the "passed through" reaction of a square for the current
      * player (e.g. Go).
      *

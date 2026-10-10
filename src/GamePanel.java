@@ -59,6 +59,9 @@ public class GamePanel extends JPanel {
     // Steps requested by a card during the current move (0 = none).
     private volatile int pendingExtraSteps = 0;
 
+    // Square name requested by a card to go to directly (null = none).
+    private volatile String pendingTeleport = null;
+
     public GamePanel(Game game) {
         this.game = Objects.requireNonNull(game, "game cannot be null.");
 
@@ -94,6 +97,7 @@ public class GamePanel extends JPanel {
         boardPanel = new BoardPanel(game);
         game.getLog().addCardListener(this::showCard);
         game.getLog().addMoveListener(steps -> pendingExtraSteps = steps);
+        game.getLog().addTeleportListener(name -> pendingTeleport = name);
 
         add(header, BorderLayout.NORTH);
         add(boardPanel, BorderLayout.CENTER);
@@ -170,12 +174,15 @@ public class GamePanel extends JPanel {
     }
 
     // After landing: if a card asked to keep moving, do it; otherwise end the turn.
-    // After landing: if a card asked to keep moving, do it; otherwise end the turn.
     private void afterLanding(Runnable onFinished) {
+        String teleport = pendingTeleport;
         int extra = pendingExtraSteps;
+        pendingTeleport = null;
         pendingExtraSteps = 0;
 
-        if (extra > 0) {
+        if (teleport != null) {
+            startMove(() -> game.teleportCurrentPlayer(teleport), false, onFinished);
+        } else if (extra > 0) {
             startMove(() -> game.advanceCurrentPlayer(extra), true, onFinished);
         } else if (extra < 0) {
             startMove(() -> game.retreatCurrentPlayer(-extra), false, onFinished);

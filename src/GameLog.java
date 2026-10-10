@@ -8,6 +8,7 @@ import java.util.function.Consumer;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.IntConsumer;
 
+
 /**
  * Chronological record of what happens in the game, in plain text, meant to
  * be read by the players (e.g. "Turno de Jugador 1, lance dados.").
@@ -32,6 +33,8 @@ public class GameLog {
     private final List<Consumer<CartaEvento>> cardListeners = new CopyOnWriteArrayList<>();
 
     private final List<IntConsumer> moveListeners = new CopyOnWriteArrayList<>();
+
+    private final List<Consumer<String>> teleportListeners = new CopyOnWriteArrayList<>();
 
     /**
      * Associates a display name with a player, so messages can mention them.
@@ -93,6 +96,22 @@ public class GameLog {
         }
         for (IntConsumer listener : moveListeners) {
             listener.accept(steps);
+        }
+    }
+
+    /** Registra quién atiende los pedidos de ir directo a una casilla. */
+    public void addTeleportListener(Consumer<String> listener) {
+        teleportListeners.add(Objects.requireNonNull(listener, "listener cannot be null."));
+    }
+
+    /**
+     * Pide que el jugador actual vaya directo a la casilla con ese nombre
+     * cuando termine el movimiento en curso. No mueve nada por sí mismo.
+     */
+    public void requestTeleport(String squareName) {
+        Objects.requireNonNull(squareName, "squareName cannot be null.");
+        for (Consumer<String> listener : teleportListeners) {
+            listener.accept(squareName);
         }
     }
 

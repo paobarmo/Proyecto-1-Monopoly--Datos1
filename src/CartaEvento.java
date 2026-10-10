@@ -25,9 +25,16 @@ public final class CartaEvento {
         log.requestExtraMove(-3);
     };
 
+    // Va directo a Spooky House, sin pasar por Go ni por las casillas intermedias.
+    private static final GameEvent IR_A_SPOOKY_HOUSE = (player, bank, log) -> {
+        log.add(log.nameOf(player) + " va directo a Spooky House.");
+        log.requestTeleport("Spooky house");
+    };
+
     private static final List<CartaEvento> MAZO = List.of(
             new CartaEvento(1, "Avanza 3 casillas.", AVANZAR_3),
-            new CartaEvento(2, "Retrocede 3 casillas.", RETROCEDER_3));
+            new CartaEvento(2, "Retrocede 3 casillas.", RETROCEDER_3),
+            new CartaEvento(3, "Ve directamente a Spooky House.", IR_A_SPOOKY_HOUSE));
 
 
     private final int numero;
