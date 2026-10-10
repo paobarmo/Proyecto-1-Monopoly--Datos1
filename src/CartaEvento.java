@@ -31,10 +31,39 @@ public final class CartaEvento {
         log.requestTeleport("Spooky house");
     };
 
+    private static final int MONTO_PAGO = 50;
+
+    // Paga 50 al banco. Si no tiene fondos, no paga (igual que Pay taxes).
+    private static final GameEvent PAGAR_50 = (player, bank, log) -> {
+        String name = log.nameOf(player);
+
+        if (bank.getBalance(player) < MONTO_PAGO) {
+            log.add(name + " debe pagar " + MONTO_PAGO + " pero no tiene fondos suficientes.");
+            return;
+        }
+
+        log.add(name + " paga " + MONTO_PAGO + " al banco.");
+        log.add("Confirme su transacción.");
+
+        EventManager.runWithConfirmation(log, () -> bank.removeMoney(player, MONTO_PAGO));
+    };
+
+    private static final int MONTO_COBRO = 100;
+
+    // Cobra 100 del banco.
+    private static final GameEvent COBRAR_100 = (player, bank, log) -> {
+        log.add(log.nameOf(player) + " recibe " + MONTO_COBRO + " del banco.");
+        log.add("Confirme su transacción.");
+
+        EventManager.runWithConfirmation(log, () -> bank.addMoney(player, MONTO_COBRO));
+    };
+
     private static final List<CartaEvento> MAZO = List.of(
             new CartaEvento(1, "Avanza 3 casillas.", AVANZAR_3),
-            new CartaEvento(2, "Retrocede 3 casillas.", RETROCEDER_3),
-            new CartaEvento(3, "Ve directamente a Spooky House.", IR_A_SPOOKY_HOUSE));
+            new CartaEvento(2, "Retrocede 3 casillas. Muajaja", RETROCEDER_3),
+            new CartaEvento(3, "Ve directamente a Spooky House.", IR_A_SPOOKY_HOUSE),
+            new CartaEvento(4, "Donas sangre a un vampiro, y 50 al banco.", PAGAR_50),
+            new CartaEvento(5, "Ganaste un concurso de disfraces, recibes 100.", COBRAR_100));
 
 
     private final int numero;

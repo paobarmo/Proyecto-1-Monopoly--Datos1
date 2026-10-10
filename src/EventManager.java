@@ -90,7 +90,7 @@ public final class EventManager {
      * card does not match, the player is told so and asked again: there is
      * no time limit and no maximum number of attempts.
      */
-    private static void runWithConfirmation(GameLog log, BooleanSupplier transaction) {
+     static void runWithConfirmation(GameLog log, BooleanSupplier transaction) {
         while (!transaction.getAsBoolean()) {
             log.add("Tarjeta no válida. Confirme su transacción.");
         }
