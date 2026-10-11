@@ -30,7 +30,13 @@ public class MonopolyApp {
                 GamePanel gamePanel = new GamePanel(game);
                 screens.add(gamePanel, GAME_SCREEN);
                 layout.show(screens, GAME_SCREEN);
-                new DiceTestWindow(frame, gamePanel::applyRoll).setVisible(true);
+                DiceTestWindow diceWindow = new DiceTestWindow(frame, gamePanel::applyRoll);
+                gamePanel.setOnGameEnd(() -> {
+                    diceWindow.dispose();                  // close the dice window
+                    layout.show(screens, MENU_SCREEN);     // Ok on Victory -> main menu
+                    screens.remove(gamePanel);             // next game starts clean
+                });
+                diceWindow.setVisible(true);
             } else if (option == 0 || option == 1) {
                 boolean host = option == 0;
                 String hostAddress = host ? "localhost" : HalloweenDialogs.entrada(frame,
@@ -61,6 +67,8 @@ public class MonopolyApp {
         final GamePanel[] remotePanel = new GamePanel[1];
         final Cliente[] client = new Cliente[1];
         final int[] ownIndex = {-1};
+        final Servidor[] serverRef = new Servidor[1];
+        final boolean[] ended = {false};
         final javax.swing.JDialog waiting = new javax.swing.JDialog(frame, "Sala de espera", false);
         final javax.swing.JLabel progress = new javax.swing.JLabel(
                 "Conectando a " + hostAddress + ":5000 ...", javax.swing.SwingConstants.CENTER);
@@ -75,6 +83,7 @@ public class MonopolyApp {
                     Servidor server = new Servidor(5000, desiredPlayers, 100,
                             Game.TURN_TIME_SECONDS, reader,
                             (n, r) -> new MotorJuegoReal(new Game(n, r)));
+                    serverRef[0] = server;
                     server.iniciar();
                 }
                 Cliente connection = new Cliente(hostAddress, 5000, message ->
@@ -91,9 +100,21 @@ public class MonopolyApp {
                                 Game displayGame = new Game(names.length, new ConsoleCardReader());
                                 remotePanel[0] = new GamePanel(displayGame, ownIndex[0],
                                         command -> client[0].enviar(command));
+                                final GamePanel panel = remotePanel[0];
+                                panel.setOnGameEnd(() -> {
+                                    ended[0] = true;
+                                    if (serverRef[0] != null) {
+                                        serverRef[0].detener();   // frees port 5000 (host only)
+                                    }
+                                    layout.show(screens, MENU_SCREEN);   // Ok on Victory -> main menu
+                                    screens.remove(panel);
+                                });
                                 screens.add(remotePanel[0], GAME_SCREEN);
                                 layout.show(screens, GAME_SCREEN);
                                 waiting.dispose();
+                            }
+                            if ("FIN".equals(parts[0])) {
+                                ended[0] = true;   // later disconnections are expected
                             }
                             if (remotePanel[0] != null) {
                                 remotePanel[0].receiveNetworkMessage(message);
@@ -102,6 +123,9 @@ public class MonopolyApp {
                                 HalloweenDialogs.mensaje(frame, "Servidor", message);
                             }
                         }), error -> SwingUtilities.invokeLater(() -> {
+                    if (ended[0]) {
+                        return;
+                    }
                     waiting.dispose();
                     HalloweenDialogs.mensaje(frame, "Conexión perdida", "Se perdió la conexión con el servidor.");
                 }));

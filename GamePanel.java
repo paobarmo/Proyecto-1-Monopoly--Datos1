@@ -6,6 +6,14 @@ import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.Container;
+import java.awt.Dialog;
+import java.awt.KeyEventDispatcher;
+import java.awt.KeyboardFocusManager;
+import java.awt.Window;
+import java.awt.event.KeyEvent;
+import javax.swing.JDialog;
+import javax.swing.SwingUtilities;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -75,6 +83,16 @@ public class GamePanel extends JPanel {
     private int networkAnimationTo;
     private Timer networkStepTimer;
     private String[] networkNames;
+    private int[] networkJailTurns;
+    private JailPanel jailPanel;
+
+    // Fin de partida, pausa (ESC) y jugadores eliminados.
+    private boolean gameEnded = false;
+    private boolean pauseOpen = false;
+    private Runnable onGameEnd = () -> { };
+    private KeyEventDispatcher escDispatcher;
+    private boolean[] networkActive;
+    private final java.util.Set<Integer> removedPanels = new java.util.HashSet<>();
 
     public GamePanel(Game game) {
         this.game = Objects.requireNonNull(game, "game cannot be null.");
@@ -141,7 +159,7 @@ public class GamePanel extends JPanel {
         registerNetworkKey("C", "comprar", Protocolo.COMPRAR_PROPIEDAD);
         registerNetworkKey("N", "rechazar", Protocolo.NO_COMPRAR);
         registerNetworkKey("F", "terminar", Protocolo.TERMINAR_TURNO);
-        game.getLog().add("Red: ESPACIO tirar dados; C comprar; N no comprar; F terminar turno.");
+        game.getLog().add("Red: ESPACIO tirar dados; C comprar; N no comprar; F terminar turno; ESC pausa.");
     }
 
     private void registerNetworkKey(String key, String actionName, String command) {
@@ -183,12 +201,14 @@ public class GamePanel extends JPanel {
                 networkStepTimer.stop();
                 networkAnimationPlayer = -1;
                 boardPanel.clearVisualPosition();
+                refreshJail();
             }
         });
         networkStepTimer.setRepeats(true);
         if (steps == 0) {
             networkAnimationPlayer = -1;
             boardPanel.clearVisualPosition();
+            refreshJail();
         } else {
             networkStepTimer.start();
         }
@@ -225,16 +245,30 @@ public class GamePanel extends JPanel {
                     networkTurnIndex = Integer.parseInt(p[1]);
                     String[] jugadores = p[2].split(";", -1);
                     int[] positions = new int[game.getPlayerCount()];
+                    int[] jail = new int[game.getPlayerCount()];
+                    boolean[] active = new boolean[game.getPlayerCount()];
+                    java.util.Arrays.fill(active, true);
                     for (String j : jugadores) {
                         String[] d = j.split(",", -1);
                         if (d.length < 5) continue;
                         int index = Integer.parseInt(d[0]);
                         if (index < 0 || index >= positions.length) continue;
                         positions[index] = Integer.parseInt(d[3]);
+                        if (d.length >= 6) jail[index] = Integer.parseInt(d[5]);
+                        active[index] = Boolean.parseBoolean(d[4]);
                         playerPanels.get(index).setNetworkState(d[1], Integer.parseInt(d[2]), Boolean.parseBoolean(d[4]));
                     }
+                    networkActive = active;
+                    boardPanel.setNetworkActive(active);
+                    syncEliminatedPanels();
                     networkPositions = positions;
                     boardPanel.setNetworkPositions(positions);
+                    networkJailTurns = jail;
+                    boardPanel.setNetworkJailTurns(jail);
+                    refreshJail();
+                    if (p.length >= 4) {
+                        boardPanel.setNetworkOwners(parseNetworkOwners(p[3]));
+                    }
                     break;
                 case "DADOS":
                     networkRolled = true;
@@ -254,10 +288,15 @@ public class GamePanel extends JPanel {
                     break;
                 case "FIN":
                     networkFinished = true;
+                    gameEnded = true;
                     turnTimer.stop();
                     timerLabel.setText("Fin de la partida");
-                    game.getLog().add("Ganador: " + p[2]);
-                    javax.swing.JOptionPane.showMessageDialog(this, "Ganador: " + p[2]);
+                    String winnerName = "-1".equals(p[1]) ? "Nadie" : p[2];
+                    game.getLog().add("Ganador: " + winnerName);
+                    closePauseDialogs();
+                    repaint();
+                    HalloweenDialogs.victoria(this, winnerName);
+                    onGameEnd.run();
                     break;
                 case "LOG": case "EVENTO": case "ERROR":
                     game.getLog().add(p.length > 1 ? p[1] : line);
@@ -277,14 +316,56 @@ public class GamePanel extends JPanel {
         repaint();
     }
 
+    // "posicion:indice,posicion:indice" -> dueño de cada casilla (-1 si no tiene).
+    private int[] parseNetworkOwners(String data) {
+        int[] owners = new int[game.getBoard().getSize()];
+        java.util.Arrays.fill(owners, -1);
+        if (data == null || data.isBlank()) {
+            return owners;
+        }
+        for (String entry : data.split(",")) {
+            String[] parts = entry.split(":");
+            if (parts.length != 2) {
+                continue;
+            }
+            int square = Integer.parseInt(parts[0].trim());
+            int owner = Integer.parseInt(parts[1].trim());
+            if (square >= 0 && square < owners.length) {
+                owners[square] = owner;
+            }
+        }
+        return owners;
+    }
+
     /**
      * Repaints every player's information so it shows the current balances
-     * held by the Bank. To be called after any transaction.
+     * held by the Bank, and the board so it shows the property owners.
+     * To be called after any transaction.
      */
     public void refreshBalances() {
+        syncEliminatedPanels();
         for (PlayerInfoPanel panel : playerPanels) {
             panel.repaint();
         }
+        boardPanel.repaint();
+        refreshJail();
+    }
+
+    /**
+     * Shows in the jail the players that are in it. In a network game, the
+     * player whose token is still walking to the Go to Jail square is shown
+     * in the jail only once the animation ends.
+     */
+    private void refreshJail() {
+        int count = game.getPlayerCount();
+        int[] shown = new int[count];
+        for (int i = 0; i < count; i++) {
+            int turns = networkMode && networkJailTurns != null
+                    ? networkJailTurns[i]
+                    : game.getJailTurnsLeft(i);
+            shown[i] = networkMode && i == networkAnimationPlayer ? 0 : turns;
+        }
+        jailPanel.setJailTurns(shown);
     }
 
     /**
@@ -299,7 +380,7 @@ public class GamePanel extends JPanel {
      */
     public void applyRoll(int steps, Runnable onFinished) {
         Objects.requireNonNull(onFinished, "onFinished cannot be null.");
-        if (animating) {
+        if (animating || gameEnded) {
             return;
         }
         animating = true;
@@ -325,6 +406,9 @@ public class GamePanel extends JPanel {
      */
     private void animateStep(int playerIndex, List<Casilla> path, int stepIndex, Runnable onFinished) {
         Timer timer = new Timer(STEP_DELAY_MS, e -> {
+            if (gameEnded) {
+                return;
+            }
             Casilla square = path.get(stepIndex);
             boardPanel.setVisualPosition(playerIndex, square.getPosition());
 
@@ -332,7 +416,14 @@ public class GamePanel extends JPanel {
             if (isLanding) {
                 runInBackground(
                         () -> game.triggerLanded(square),
-                        () -> finishMove(onFinished));
+                        () -> {
+                            game.eliminateBankruptPlayers();
+                            if (game.isEliminated(playerIndex) || game.isGameOver()) {
+                                finishMove(onFinished);   // eliminated: no purchase is offered
+                            } else {
+                                offerPurchase(() -> finishMove(onFinished));
+                            }
+                        });
             } else {
                 runInBackground(
                         () -> game.triggerPassed(square),
@@ -343,8 +434,74 @@ public class GamePanel extends JPanel {
         timer.start();
     }
 
+    /**
+     * After landing (local game): if the square is a property with no owner,
+     * asks the current player whether to buy it. The payment asks for the
+     * player's card, so it runs in the background. If the payment is not
+     * confirmed, the player is asked again. Always ends by running "next" on
+     * the Swing thread.
+     */
+    private void offerPurchase(Runnable next) {
+        CasillaPropiedad property = game.getBuyableProperty();
+        if (property == null) {
+            next.run();
+            return;
+        }
+
+        Player buyer = game.getCurrentPlayer();
+        String buyerName = game.getPlayerName(game.getCurrentPlayerIndex());
+        int price = property.getPrice();
+        int balance = game.getBank().getBalance(buyer);
+
+        if (balance < price) {
+            game.getLog().add(buyerName + " no tiene saldo para comprar " + property.getName()
+                    + " (cuesta " + price + ").");
+            next.run();
+            return;
+        }
+
+        int answer = javax.swing.JOptionPane.showConfirmDialog(this,
+                buyerName + ", ¿quieres comprar " + property.getName() + " por $" + price + "?\n"
+                        + "Tu saldo: $" + balance,
+                "Comprar propiedad", javax.swing.JOptionPane.YES_NO_OPTION);
+
+        if (answer != javax.swing.JOptionPane.YES_OPTION) {
+            game.getLog().add(buyerName + " decidió no comprar " + property.getName() + ".");
+            next.run();
+            return;
+        }
+
+        game.getLog().add("Confirme su transacción.");
+        runInBackground(() -> {
+            try {
+                game.buyCurrentProperty();
+            } catch (ErrorJuego e) {
+                game.getLog().add(e.getMessage());
+            }
+        }, () -> {
+            if (game.getBuyableProperty() == null) {
+                next.run();            // comprada
+            } else {
+                offerPurchase(next);   // el pago no se confirmó: preguntar de nuevo
+            }
+        });
+    }
+
     private void finishMove(Runnable onFinished) {
+        if (gameEnded) {
+            return;
+        }
         boardPanel.clearVisualPosition();
+        game.eliminateBankruptPlayers();   // balance 0 after buying, paying taxes, etc.
+        refreshBalances();
+
+        if (game.isGameOver()) {
+            int winner = game.getWinnerIndex();
+            showVictory(winner >= 0 ? java.util.Collections.singletonList(winner)
+                    : java.util.Collections.<Integer>emptyList());
+            return;
+        }
+
         game.endTurn();
         updateTurnLabel();
         refreshBalances();
@@ -377,10 +534,153 @@ public class GamePanel extends JPanel {
                     game.getLog().add("Error: " + e.getCause());
                 }
 
+                if (gameEnded) {
+                    return;
+                }
                 refreshBalances();
                 thenOnSwingThread.run();
             }
         }.execute();
+    }
+
+    // ------------------------------------------------ ESC, victory, eliminations
+
+    /** What to do after the player presses Ok on the Victory screen (go back to the menu). */
+    public void setOnGameEnd(Runnable onGameEnd) {
+        this.onGameEnd = Objects.requireNonNull(onGameEnd, "onGameEnd cannot be null.");
+    }
+
+    // ESC is listened to in the whole application (also when the focus is in the dice
+    // window), except when a modal dialog (purchase, pause...) is already open.
+    @Override
+    public void addNotify() {
+        super.addNotify();
+        if (escDispatcher == null) {
+            escDispatcher = this::onKeyEvent;
+            KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(escDispatcher);
+        }
+    }
+
+    @Override
+    public void removeNotify() {
+        if (escDispatcher != null) {
+            KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(escDispatcher);
+            escDispatcher = null;
+        }
+        super.removeNotify();
+    }
+
+    private boolean onKeyEvent(KeyEvent e) {
+        if (e.getID() != KeyEvent.KEY_PRESSED || e.getKeyCode() != KeyEvent.VK_ESCAPE) {
+            return false;
+        }
+        if (gameEnded || pauseOpen || !isShowing()) {
+            return false;
+        }
+        if (networkMode && (networkFinished || networkSender == null || isGone(networkLocalIndex))) {
+            return false;
+        }
+        Window active = KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow();
+        if (active instanceof Dialog && ((Dialog) active).isModal()) {
+            return false;
+        }
+        pauseOpen = true;
+        SwingUtilities.invokeLater(this::openPauseMenu);
+        return false;
+    }
+
+    private void openPauseMenu() {
+        if (!networkMode) {
+            turnTimer.stop();   // in a network game the server owns the clock
+        }
+        int choice = -1;
+        try {
+            choice = HalloweenDialogs.pausa(this, networkMode);
+        } finally {
+            pauseOpen = false;
+        }
+        if (gameEnded) {
+            return;
+        }
+        if (choice == 1) {
+            if (networkMode) {
+                networkSender.accept(Protocolo.TERMINAR_PARTIDA);   // the server answers with FIN
+            } else {
+                game.getLog().add("Partida terminada antes de tiempo.");
+                showVictory(game.getRichestPlayerIndexes());
+                return;
+            }
+        }
+        if (!networkMode) {
+            turnTimer.start();
+        }
+    }
+
+    // Closes the pause dialog if it is open (e.g. the game ended while it was showing).
+    private void closePauseDialogs() {
+        for (Window window : Window.getWindows()) {
+            if (window instanceof JDialog && window.isVisible()
+                    && "Pausa".equals(((JDialog) window).getTitle())) {
+                window.dispose();
+            }
+        }
+    }
+
+    /** Shows Victory (local game) and, on Ok, goes back to the main menu. */
+    private void showVictory(List<Integer> winners) {
+        if (gameEnded) {
+            return;
+        }
+        gameEnded = true;
+        turnTimer.stop();
+        closePauseDialogs();
+
+        StringBuilder name = new StringBuilder();
+        for (int winner : winners) {
+            if (name.length() > 0) {
+                name.append(" y ");
+            }
+            name.append(game.getPlayerName(winner));
+        }
+        if (name.length() == 0) {
+            name.append("Nadie");
+        }
+
+        game.getLog().add("Victory: " + name);
+        HalloweenDialogs.victoria(this, name.toString());
+        onGameEnd.run();
+    }
+
+    private boolean isGone(int index) {
+        if (networkMode) {
+            return networkActive != null && index >= 0 && index < networkActive.length
+                    && !networkActive[index];
+        }
+        return game.isEliminated(index);
+    }
+
+    // Removes an eliminated player's information from the side column, leaving an
+    // empty space so the other panels do not change place.
+    private void syncEliminatedPanels() {
+        for (int i = 0; i < playerPanels.size(); i++) {
+            if (!isGone(i) || removedPanels.contains(i)) {
+                continue;
+            }
+            PlayerInfoPanel panel = playerPanels.get(i);
+            Container parent = panel.getParent();
+            if (parent == null || !(parent.getLayout() instanceof GridBagLayout)) {
+                continue;
+            }
+            GridBagConstraints constraints = ((GridBagLayout) parent.getLayout()).getConstraints(panel);
+            JPanel spacer = new JPanel();
+            spacer.setOpaque(false);
+            spacer.setPreferredSize(panel.getPreferredSize());
+            parent.remove(panel);
+            parent.add(spacer, constraints);
+            parent.revalidate();
+            parent.repaint();
+            removedPanels.add(i);
+        }
     }
 
     // ------------------------------------------------------------ turn clock
@@ -408,13 +708,18 @@ public class GamePanel extends JPanel {
                 + game.getPlayerName(game.getCurrentPlayerIndex()) + ".");
         game.endTurn();
         updateTurnLabel();
+        refreshJail();
         resetTurnTimer();
     }
 
     private void resetTurnTimer() {
         secondsLeft = Game.TURN_TIME_SECONDS;
         updateTimerLabel();
-        turnTimer.restart();
+        if (pauseOpen || gameEnded) {
+            turnTimer.stop();
+        } else {
+            turnTimer.restart();
+        }
     }
 
     private void updateTimerLabel() {
@@ -449,7 +754,8 @@ public class GamePanel extends JPanel {
     private JPanel buildRightColumn() {
         JPanel column = newSideColumn();
         addToColumn(column, 0, GridBagConstraints.NORTH, playerPanel(1));   // Player 2
-        JailPanel jail = new JailPanel();
+        jailPanel = new JailPanel();
+        JailPanel jail = jailPanel;
         jail.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(GOLD, 2),
                 BorderFactory.createEmptyBorder(6, 6, 6, 6)));

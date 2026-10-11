@@ -17,6 +17,9 @@ public class CasillaEvento extends Casilla {
 
     private final String eventId;
 
+    // Only needed by events that act on the board (e.g. Go to Jail).
+    private Board board;
+
     public CasillaEvento(String name, int position, String eventId) {
         super(name, position);
 
@@ -31,9 +34,17 @@ public class CasillaEvento extends Casilla {
         return eventId;
     }
 
+    /**
+     * Gives the square access to the board it belongs to, for the events
+     * that need it (e.g. Go to Jail moves the player).
+     */
+    public void setBoard(Board board) {
+        this.board = board;
+    }
+
     @Override
     public void onLand(Player player, Bank bank, GameLog log) {
-        EventManager.trigger(eventId, player, bank, log);
+        EventManager.trigger(eventId, player, bank, log, board);
     }
 
     @Override

@@ -62,11 +62,15 @@ public class BoardFactory {
     // it always matches the square's real index in the list.
     private static void addProperty(Board board, String name, String colorGroup,
                                     int price, int rentWithoutGroup, int rentWithGroup) {
-        board.addCasilla(new CasillaPropiedad(name, board.getSize(), price, colorGroup,
-                rentWithoutGroup, rentWithGroup));
+        CasillaPropiedad property = new CasillaPropiedad(name, board.getSize(), price, colorGroup,
+                rentWithoutGroup, rentWithGroup);
+        property.setBoard(board); // lets the property check whether its owner holds the full group
+        board.addCasilla(property);
     }
 
     private static void addEvent(Board board, String name, String eventId) {
-        board.addCasilla(new CasillaEvento(name, board.getSize(), eventId));
+        CasillaEvento event = new CasillaEvento(name, board.getSize(), eventId);
+        event.setBoard(board); // lets events that act on the board (e.g. Go to Jail) use it
+        board.addCasilla(event);
     }
 }

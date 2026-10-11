@@ -18,6 +18,9 @@ public class CasillaPropiedad extends Casilla {
 
     private Player owner;
 
+    // Used to ask whether the owner holds the whole color group (see onLand).
+    private Board board;
+
     public CasillaPropiedad(String name, int position, int price, String colorGroup,
                              int rentWithoutGroup, int rentWithGroup) {
         super(name, position);
@@ -68,6 +71,14 @@ public class CasillaPropiedad extends Casilla {
     }
 
     /**
+     * Gives the property access to the board it belongs to, so it can check
+     * whether its owner holds every property of the color group.
+     */
+    public void setBoard(Board board) {
+        this.board = board;
+    }
+
+    /**
      * Returns the rent currently owed for this square.
      *
      * @param ownerHasFullGroup whether the owner holds every property of
@@ -81,9 +92,9 @@ public class CasillaPropiedad extends Casilla {
     @Override
     public void onLand(Player player, Bank bank, GameLog log) {
         if (!isOwned()) {
-            // No owner yet: purchase flow is pending integration with the
-            // Player API (e.g. asking the player, checking funds, etc.).
-            // Left as a placeholder until that logic is defined.
+            // No owner yet: landing here costs nothing. The purchase is offered
+            // right after by the screen (local game) or the server (network
+            // game), through Game.buyCurrentProperty().
             return;
         }
 
@@ -92,15 +103,15 @@ public class CasillaPropiedad extends Casilla {
             return;
         }
 
-        // TODO: ownerHasFullGroup must be determined by querying the Board
-        // for every property in this color group and checking they all
-        // belong to "owner". Left as false until that query is available.
-        boolean ownerHasFullGroup = false;
+        // The owner charges the higher rent only if they hold every property
+        // of this color group.
+        boolean ownerHasFullGroup = board != null && board.ownsFullGroup(owner, colorGroup);
 
         int rentDue = getRent(ownerHasFullGroup);
         if (bank.transfer(player, owner, rentDue)) {
             log.add(log.nameOf(player) + " paga " + rentDue + " de renta a "
-                    + log.nameOf(owner) + " por " + getName() + ".");
+                    + log.nameOf(owner) + " por " + getName()
+                    + (ownerHasFullGroup ? " (grupo " + colorGroup + " completo)" : "") + ".");
         } else {
             log.add("No se pudo verificar la tarjeta de " + log.nameOf(player)
                     + "; no se cobró la renta de " + getName() + ".");

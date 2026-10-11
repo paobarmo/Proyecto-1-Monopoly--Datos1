@@ -7,6 +7,7 @@
  *   COMPRAR_PROPIEDAD
  *   NO_COMPRAR
  *   TERMINAR_TURNO
+ *   TERMINAR_PARTIDA                    termina la partida antes de tiempo: gana quien tenga más dinero
  *   CONSULTAR_ESTADO
  *   CONSULTAR_TRANSACCIONES
  *
@@ -24,13 +25,17 @@
  *   DADOS|indice|d1|d2|desde|hasta|casilla
  *   PUEDE_COMPRAR|casilla|precio        solo al jugador en turno
  *   COMPRA|indice|texto
- *   ESTADO|turno|i,nombre,saldo,posicion,activo;...
+ *   ESTADO|turno|i,nombre,saldo,posicion,activo,turnosCarcel;...|propietarios
+ *                                       turnosCarcel = turnos que le faltan por perder en la cárcel (0 si está libre)
+ *                                       propietarios = posicion:indice,posicion:indice (solo propiedades con dueño)
  *   LOG|texto                           mensajes del GameLog (alquileres, eventos, etc.)
  *   ESPERANDO_TARJETA|indice|segundos
  *   EVENTO|texto
  *   ELIMINADO|indice|nombre
  *   TRANSACCIONES|n  /  TX|i|texto  /  FIN_TRANSACCIONES
  *   FIN|indiceGanador|nombre|motivo|patrimonio
+ *                                       motivo = UNICO_JUGADOR | LIMITE_TURNOS | TERMINADA_ANTES
+ *                                       TERMINADA_ANTES: si hay empate, nombre = "A y B" y el último campo es el saldo
  */
 public final class Protocolo {
     public static final String CONECTAR = "CONECTAR";
@@ -41,6 +46,7 @@ public final class Protocolo {
     public static final String COMPRAR_PROPIEDAD = "COMPRAR_PROPIEDAD";
     public static final String NO_COMPRAR = "NO_COMPRAR";
     public static final String TERMINAR_TURNO = "TERMINAR_TURNO";
+    public static final String TERMINAR_PARTIDA = "TERMINAR_PARTIDA";
     public static final String CONSULTAR_ESTADO = "CONSULTAR_ESTADO";
     public static final String CONSULTAR_TRANSACCIONES = "CONSULTAR_TRANSACCIONES";
 

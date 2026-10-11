@@ -1,5 +1,7 @@
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
 
 /**
@@ -19,12 +21,29 @@ public final class EventManager {
 
     private static final int GO_REWARD = 200;
     private static final int TAX_AMOUNT = 200;
+    private static final int JAIL_TURNS = 3;
+
+    /** An event that also needs the board (e.g. to move a player somewhere). */
+    @FunctionalInterface
+    private interface BoardEvent {
+        void execute(Player player, Bank bank, GameLog log, Board board);
+    }
 
     private static final Map<String, GameEvent> EVENTS = new HashMap<>();
+    private static final Map<String, BoardEvent> BOARD_EVENTS = new HashMap<>();
+
+    // Players who could not pay a mandatory event (e.g. taxes); Game eliminates them.
+    private static final Set<Player> UNABLE_TO_PAY = ConcurrentHashMap.newKeySet();
+
+    /** True (only once) if the player could not pay an event. Used by Game. */
+    static boolean consumeUnableToPay(Player player) {
+        return UNABLE_TO_PAY.remove(player);
+    }
 
     static {
         EVENTS.put("GO", EventManager::goEvent);
         EVENTS.put("PAY_TAXES", EventManager::payTaxesEvent);
+        BOARD_EVENTS.put("GO_TO_JAIL", EventManager::goToJailEvent);
     }
 
     private EventManager() {
@@ -47,6 +66,22 @@ public final class EventManager {
         event.execute(player, bank, log);
     }
 
+    /**
+     * Same as trigger above, but also gives the event access to the board
+     * (needed by events such as Go to Jail). Events that do not need the
+     * board run exactly as before.
+     */
+    public static void trigger(String eventId, Player player, Bank bank, GameLog log, Board board) {
+        BoardEvent boardEvent = BOARD_EVENTS.get(eventId);
+
+        if (boardEvent != null && board != null) {
+            boardEvent.execute(player, bank, log, board);
+            return;
+        }
+
+        trigger(eventId, player, bank, log);
+    }
+
     // ---------------------------------------------------------------- events
 
     // The player collects money from the bank.
@@ -63,6 +98,7 @@ public final class EventManager {
 
         if (bank.getBalance(player) < TAX_AMOUNT) {
             log.add(name + " debe pagar " + TAX_AMOUNT + " pero no tiene fondos suficientes.");
+            UNABLE_TO_PAY.add(player);
             return;
         }
 
@@ -70,6 +106,14 @@ public final class EventManager {
         log.add("Confirme su transacción.");
 
         runWithConfirmation(log, () -> bank.removeMoney(player, TAX_AMOUNT));
+    }
+
+    // The player goes to jail and loses their next turns. No money is moved,
+    // so no card confirmation is needed.
+    private static void goToJailEvent(Player player, Bank bank, GameLog log, Board board) {
+        log.add(log.nameOf(player) + " va a la cárcel y pierde los próximos "
+                + JAIL_TURNS + " turnos.");
+        board.sendToJail(player, JAIL_TURNS);
     }
 
     // --------------------------------------------------------------- helpers

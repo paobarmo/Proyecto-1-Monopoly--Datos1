@@ -19,6 +19,49 @@ public final class HalloweenDialogs {
                 new String[]{"Crear partida", "Unirse a partida", "Jugar local", "Cancelar"}, false);
     }
 
+    /** Menú de pausa (ESC). Devuelve 0 = seguir, 1 = terminar partida, -1 = cerrado (seguir). */
+    public static int pausa(Component parent) {
+        return pausa(parent, false);
+    }
+
+    public static int pausa(Component parent, boolean enRed) {
+        return mostrar(parent, "Pausa", "PARTIDA EN PAUSA",
+                enRed ? "Terminar acaba la partida para todos · Gana quien tenga más dinero"
+                      : "Si terminas, gana quien tenga más dinero",
+                new String[]{"Seguir", "Terminar"}, false);
+    }
+
+    /** Pantalla de victoria: "Victory", el nombre del ganador y un botón Ok. */
+    public static void victoria(Component parent, String ganador) {
+        JDialog dialog = dialogo(parent, "Victory");
+        JPanel body = new JPanel(new BorderLayout(0, 26));
+        body.setBackground(FONDO);
+        body.setBorder(new EmptyBorder(36, 70, 30, 70));
+
+        JPanel centro = new JPanel(new GridLayout(2, 1, 0, 10));
+        centro.setOpaque(false);
+        JLabel titulo = new JLabel("Victory", SwingConstants.CENTER);
+        titulo.setFont(new Font("Georgia", Font.BOLD, 56));
+        titulo.setForeground(ORO);
+        JLabel nombre = new JLabel(ganador, SwingConstants.CENTER);
+        nombre.setFont(new Font("Georgia", Font.BOLD, 30));
+        nombre.setForeground(TEXTO);
+        centro.add(titulo);
+        centro.add(nombre);
+        body.add(centro, BorderLayout.CENTER);
+
+        JPanel acciones = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        acciones.setOpaque(false);
+        JButton ok = boton("Ok");
+        ok.addActionListener(e -> dialog.dispose());
+        acciones.add(ok);
+        body.add(acciones, BorderLayout.SOUTH);
+
+        preparar(dialog, body, parent);
+        dialog.getRootPane().setDefaultButton(ok);
+        dialog.setVisible(true);
+    }
+
     /** Devuelve el índice del avatar seleccionado, o -1 si se cancela. */
     public static int avatar(Component parent, int jugador) {
         String[] opciones = new String[AvatarSprites.count()];

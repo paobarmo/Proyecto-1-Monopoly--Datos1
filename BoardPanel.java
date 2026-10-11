@@ -30,6 +30,8 @@ import javax.swing.JPanel;
  * edge facing the center of the board; the name is written in the white
  * part. Event squares and corners are white with only their name.
  *
+ * A purchased property gets a border in the color of its owner.
+ *
  * Players are drawn as circles of their color in a row along the outer edge
  * of the square they are standing on (the bottom edge in the corners).
  *
@@ -65,6 +67,9 @@ public class BoardPanel extends JPanel {
     private int visualPlayerIndex = -1;
     private int visualPosition = 0;
     private int[] networkPositions;
+    private int[] networkOwners;
+    private int[] networkJailTurns;
+    private boolean[] networkActive;
 
     public BoardPanel(Game game) {
         this.game = Objects.requireNonNull(game, "game cannot be null.");
@@ -104,6 +109,30 @@ public class BoardPanel extends JPanel {
         repaint();
     }
 
+    /**
+     * Solo presentación: dueño de cada casilla según el servidor (-1 si no
+     * tiene). Mientras no se llame, se leen los dueños del Game local.
+     */
+    public void setNetworkOwners(int[] owners) {
+        this.networkOwners = owners == null ? null : owners.clone();
+        repaint();
+    }
+
+    /**
+     * Solo presentación: turnos de cárcel que le faltan a cada jugador según
+     * el servidor. Mientras no se llame, se leen del Game local.
+     */
+    public void setNetworkJailTurns(int[] turns) {
+        this.networkJailTurns = turns == null ? null : turns.clone();
+        repaint();
+    }
+
+    /** Solo presentación: qué jugadores siguen en la partida según el servidor. */
+    public void setNetworkActive(boolean[] active) {
+        this.networkActive = active == null ? null : active.clone();
+        repaint();
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -125,6 +154,26 @@ public class BoardPanel extends JPanel {
         }
         if (networkPositions != null && networkPositions.length == positions.length) {
             System.arraycopy(networkPositions, 0, positions, 0, positions.length);
+        }
+        // Players in jail are drawn in the JailPanel, not on the board. The player
+        // being animated is still shown until the animation ends.
+        for (int i = 0; i < positions.length; i++) {
+            boolean jailed = networkJailTurns != null && i < networkJailTurns.length
+                    ? networkJailTurns[i] > 0
+                    : game.isInJail(i);
+            if (jailed) {
+                positions[i] = -1;
+            }
+        }
+        // Eliminated players disappear from the board (the one being animated stays
+        // visible until the animation ends).
+        for (int i = 0; i < positions.length; i++) {
+            boolean gone = networkActive != null && i < networkActive.length
+                    ? !networkActive[i]
+                    : game.isEliminated(i);
+            if (gone) {
+                positions[i] = -1;
+            }
         }
         if (visualPlayerIndex >= 0 && visualPlayerIndex < positions.length) {
             positions[visualPlayerIndex] = visualPosition;
@@ -191,8 +240,40 @@ public class BoardPanel extends JPanel {
         g2.setColor(Color.BLACK);
         g2.draw(bounds);
 
+        drawOwnerMark(g2, casilla, index, bounds, unit);
+
         drawWrappedText(g2, casilla.getName(), textArea, Math.max(MIN_FONT_SIZE, unit / 2));
         drawTokens(g2, band(bounds, tokenSide, tokenBand), index, positions, unit);
+    }
+
+    // ---------------------------------------------------------------- owners
+
+    // Marks a purchased property with a border in its owner's color.
+    private void drawOwnerMark(Graphics2D g2, Casilla casilla, int index, Rectangle bounds, int unit) {
+        int ownerIndex = ownerIndexOf(casilla, index);
+        if (ownerIndex < 0) {
+            return;
+        }
+
+        float thickness = Math.max(3f, unit / 5f);
+        int inset = Math.round(thickness / 2f) + 1;
+        java.awt.Stroke previous = g2.getStroke();
+        g2.setStroke(new BasicStroke(thickness));
+        g2.setColor(PlayerColors.forPlayer(ownerIndex));
+        g2.drawRect(bounds.x + inset, bounds.y + inset,
+                bounds.width - 2 * inset, bounds.height - 2 * inset);
+        g2.setStroke(previous);
+    }
+
+    // Owner of a square: from the server in a network game, else from the local Game.
+    private int ownerIndexOf(Casilla casilla, int index) {
+        if (!(casilla instanceof CasillaPropiedad)) {
+            return -1;
+        }
+        if (networkOwners != null) {
+            return index < networkOwners.length ? networkOwners[index] : -1;
+        }
+        return game.getPlayerIndex(((CasillaPropiedad) casilla).getOwner());
     }
 
     // ------------------------------------------------------------- geometry

@@ -295,8 +295,10 @@ public class Servidor {
             sb.append(i == 0 ? "" : ";")
                     .append(i).append(',').append(jugadores.get(i).nombre).append(',')
                     .append(motor.saldo(i)).append(',').append(motor.posicion(i)).append(',')
-                    .append(motor.activo(i));
+                    .append(motor.activo(i)).append(',').append(motor.turnosCarcel(i));
         }
+        // Campo extra al final: dueños de las propiedades ("posicion:indice,...", vacío si ninguna).
+        sb.append('|').append(motor.propietarios());
         return sb.toString();
     }
 
@@ -339,6 +341,9 @@ public class Servidor {
                         }
                         m.enviar("OK|TURNO_TERMINADO");
                         avanzar();
+                        break;
+                    case Protocolo.TERMINAR_PARTIDA:
+                        terminarAnticipada(m);
                         break;
                     case Protocolo.CONSULTAR_ESTADO:
                         if (iniciada) {
@@ -397,14 +402,22 @@ public class Servidor {
         broadcast("DADOS|" + m.indice + "|" + l.d1 + "|" + l.d2 + "|" + l.desde + "|" + l.hasta
                 + "|" + Protocolo.limpiar(l.casilla));
         MotorJuego.Resolucion r = motor.resolver();
-        pendienteCompra = r.puedeComprar && !r.eliminado;
-        broadcast(estado());
-        m.enviar("OK|DADOS");
+        boolean huboEliminacion = false;
         if (r.eliminado) {
             broadcast("ELIMINADO|" + m.indice + "|" + m.nombre);
+            huboEliminacion = true;
+        }
+        huboEliminacion |= eliminarSinSaldo();   // saldo 0 tras pagar renta, etc.
+        boolean yoEliminado = r.eliminado || !motor.activo(m.indice);
+        pendienteCompra = r.puedeComprar && !yoEliminado;
+        broadcast(estado());
+        m.enviar("OK|DADOS");
+        if (yoEliminado) {
             if (!verificarFin(false)) {
                 avanzar();
             }
+        } else if (huboEliminacion && verificarFin(false)) {
+            // La partida terminó: ya se envió FIN.
         } else if (pendienteCompra) {
             m.enviar("PUEDE_COMPRAR|" + Protocolo.limpiar(l.casilla) + "|" + r.precio);
         }
@@ -421,8 +434,12 @@ public class Servidor {
         String texto = motor.comprar();
         pendienteCompra = false;
         broadcast("COMPRA|" + m.indice + "|" + Protocolo.soloUnaLinea(texto));
+        boolean huboEliminacion = eliminarSinSaldo();   // comprar con todo el dinero -> saldo 0
         broadcast(estado());
         m.enviar("OK|COMPRA");
+        if (huboEliminacion && !verificarFin(false) && !motor.activo(m.indice)) {
+            avanzar();
+        }
     }
 
     private void noComprar(Manejador m) throws ErrorJuego {
@@ -445,6 +462,60 @@ public class Servidor {
             m.enviar("TX|" + (i + 1) + "|" + Protocolo.soloUnaLinea(h.get(i)));
         }
         m.enviar("FIN_TRANSACCIONES");
+    }
+
+    /** Elimina a todo jugador activo con saldo 0 (no hay saldos negativos). Con el lock tomado. */
+    private boolean eliminarSinSaldo() {
+        boolean alguno = false;
+        for (int i = 0; i < nJugadores; i++) {
+            if (motor.activo(i) && motor.saldo(i) <= 0) {
+                motor.eliminar(i);
+                broadcast("EVENTO|" + jugadores.get(i).nombre + " se quedó sin dinero y queda eliminado");
+                broadcast("ELIMINADO|" + i + "|" + jugadores.get(i).nombre);
+                alguno = true;
+            }
+        }
+        return alguno;
+    }
+
+    /** ESC > Terminar: acaba la partida para todos; gana quien tenga más dinero (saldo). */
+    private void terminarAnticipada(Manejador m) throws ErrorJuego {
+        if (!iniciada) {
+            throw new ErrorJuego("La partida aún no inicia");
+        }
+        if (terminada) {
+            throw new ErrorJuego("La partida ya terminó");
+        }
+        if (m.indice < 0 || !motor.activo(m.indice)) {
+            throw new ErrorJuego("Solo los jugadores que siguen en la partida pueden terminarla");
+        }
+        List<Integer> ganadores = new ArrayList<>();
+        int mejor = -1;
+        for (int i = 0; i < nJugadores; i++) {
+            if (!motor.activo(i)) {
+                continue;
+            }
+            int saldo = motor.saldo(i);
+            if (saldo > mejor) {
+                mejor = saldo;
+                ganadores.clear();
+                ganadores.add(i);
+            } else if (saldo == mejor) {
+                ganadores.add(i);
+            }
+        }
+        terminada = true;
+        cancelarTemporizador();
+        broadcast("EVENTO|" + m.nombre + " terminó la partida antes de tiempo");
+        broadcast(estado());
+        StringBuilder nombre = new StringBuilder();
+        for (int g : ganadores) {
+            nombre.append(nombre.length() == 0 ? "" : " y ").append(jugadores.get(g).nombre);
+        }
+        int indice = ganadores.isEmpty() ? -1 : ganadores.get(0);
+        broadcast("FIN|" + indice + "|" + (nombre.length() == 0 ? "nadie" : nombre)
+                + "|TERMINADA_ANTES|" + Math.max(mejor, 0));
+        m.enviar("OK|TERMINAR_PARTIDA");
     }
 
     // ------------------------------------------------------------------ una conexión

@@ -42,6 +42,19 @@ public interface MotorJuego {
 
     String comprar() throws ErrorJuego;
 
+    /**
+     * Dueños de las propiedades como "posicion:indice,posicion:indice" (solo las que
+     * ya tienen dueño; cadena vacía si ninguna). El servidor lo envía en cada ESTADO.
+     */
+    default String propietarios() {
+        return "";
+    }
+
+    /** Turnos que al jugador i le faltan por perder en la cárcel (0 si está libre). */
+    default int turnosCarcel(int i) {
+        return 0;
+    }
+
     void terminarTurno();
 
     void eliminar(int i);

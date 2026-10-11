@@ -27,7 +27,7 @@ public class MotorJuegoReal implements MotorJuego {
 
     @Override
     public boolean activo(int i) {
-        return game.getPlayer(i).enJuego;
+        return game.getPlayer(i).enJuego && !game.isEliminated(i);
     }
 
     @Override
@@ -88,16 +88,20 @@ public class MotorJuegoReal implements MotorJuego {
                 game.triggerPassed(c);
             }
             Casilla llegada = ultimoMovimiento.getLandingSquare();
+            // triggerLanded elimina al jugador si no puede pagar la renta o los impuestos.
             game.triggerLanded(llegada);
+            game.eliminateBankruptPlayers();   // saldo 0 -> pierde
+            if (game.isEliminated(idx)) {
+                r.eliminado = true;
+                return r;
+            }
             if (llegada instanceof CasillaPropiedad && !((CasillaPropiedad) llegada).isOwned()) {
                 r.puedeComprar = true;
                 r.precio = ((CasillaPropiedad) llegada).getPrice();
             }
         } catch (IllegalStateException e) {
-            // Bank.checkFunds: no puede cubrir un pago obligatorio -> eliminado
-            game.getLog().add(game.getLog().nameOf(game.getPlayer(idx))
-                    + " no puede cubrir un pago obligatorio y queda eliminado.");
-            eliminar(idx);
+            // Red de seguridad (Bank.checkFunds): no puede cubrir un pago obligatorio -> eliminado
+            game.eliminatePlayer(idx, "no puede cubrir un pago obligatorio y queda eliminado");
             r.eliminado = true;
         }
         return r;
@@ -105,27 +109,28 @@ public class MotorJuegoReal implements MotorJuego {
 
     @Override
     public String comprar() throws ErrorJuego {
-        Player p = game.getCurrentPlayer();
-        Bank bank = game.getBank();
-        Casilla c = game.getBoard().getCurrentCasilla(p);
-        if (!(c instanceof CasillaPropiedad)) {
-            throw new ErrorJuego("Esta casilla no se puede comprar");
+        // La lógica vive en Game para que el modo local y el de red usen el mismo código.
+        return game.buyCurrentProperty();
+    }
+
+    @Override
+    public String propietarios() {
+        int[] owners = game.getPropertyOwnerIndexes();
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < owners.length; i++) {
+            if (owners[i] >= 0) {
+                if (sb.length() > 0) {
+                    sb.append(',');
+                }
+                sb.append(i).append(':').append(owners[i]);
+            }
         }
-        CasillaPropiedad prop = (CasillaPropiedad) c;
-        if (prop.isOwned()) {
-            throw new ErrorJuego("La propiedad ya tiene propietario");
-        }
-        if (bank.getBalance(p) < prop.getPrice()) {
-            throw new ErrorJuego("Saldo insuficiente: cuesta " + prop.getPrice()
-                    + " y tienes " + bank.getBalance(p));
-        }
-        if (!bank.removeMoney(p, prop.getPrice())) {
-            throw new ErrorJuego("Pago no confirmado: tarjeta RFID no válida o no presentada");
-        }
-        prop.setOwner(p);
-        String msg = game.getLog().nameOf(p) + " compró " + prop.getName() + " por " + prop.getPrice();
-        game.getLog().add(msg);
-        return msg;
+        return sb.toString();
+    }
+
+    @Override
+    public int turnosCarcel(int i) {
+        return game.getJailTurnsLeft(i);
     }
 
     @Override
@@ -135,15 +140,8 @@ public class MotorJuegoReal implements MotorJuego {
 
     @Override
     public void eliminar(int i) {
-        Player p = game.getPlayer(i);
-        p.enJuego = false;
-        Board b = game.getBoard();
-        for (int k = 0; k < b.getSize(); k++) {
-            Casilla c = b.getCasilla(k);
-            if (c instanceof CasillaPropiedad && p.equals(((CasillaPropiedad) c).getOwner())) {
-                ((CasillaPropiedad) c).setOwner(null);
-            }
-        }
+        game.getPlayer(i).enJuego = false;
+        game.eliminatePlayer(i);   // sale de la cárcel y libera sus propiedades
     }
 
     @Override
