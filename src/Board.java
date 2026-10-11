@@ -1,7 +1,7 @@
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Represents the Monopoly game board as a circular doubly linked list.
@@ -29,6 +29,9 @@ public class Board {
         }
     }
 
+    // Event id of the corner where jailed players are released.
+    private static final String JAIL_VISIT_EVENT_ID = "JAIL_VISIT";
+
     private Node first;
     private Node last;
     private int size;
@@ -36,12 +39,15 @@ public class Board {
     // Tracks each player's current node on the board.
     private final Map<Player, Node> playerPositions;
 
+    // Turns each jailed player still has to lose (only players in jail appear here).
+    private final Map<Player, Integer> jailTurns;
+
     public Board() {
         this.first = null;
         this.last = null;
         this.size = 0;
-        // Read by the screen while a background thread may remove a player.
-        this.playerPositions = new ConcurrentHashMap<>();
+        this.playerPositions = new HashMap<>();
+        this.jailTurns = new HashMap<>();
     }
 
     /**
@@ -148,6 +154,9 @@ public class Board {
         if (steps < 1) {
             throw new IllegalArgumentException("Steps must be positive.");
         }
+        if (isInJail(player)) {
+            throw new IllegalStateException("Player is in jail and cannot move.");
+        }
 
         List<Casilla> passed = new ArrayList<>();
         Node destination = currentNode;
@@ -177,41 +186,6 @@ public class Board {
     }
 
     /**
-     * Removes a player from the board (e.g. when they lose the game). Their
-     * token stops being on any square.
-     *
-     * @param player the player to remove
-     */
-    public void removePlayer(Player player) {
-        playerPositions.remove(player);
-    }
-
-    /**
-     * Returns every property square of the given color group, in board order.
-     *
-     * @param colorGroup the color group to look for
-     * @return the properties of that group (empty if there are none)
-     */
-    public List<CasillaPropiedad> getPropertiesByColorGroup(String colorGroup) {
-        List<CasillaPropiedad> properties = new ArrayList<>();
-        if (first == null) {
-            return properties;
-        }
-
-        Node current = first;
-        for (int i = 0; i < size; i++) {
-            if (current.data instanceof CasillaPropiedad) {
-                CasillaPropiedad property = (CasillaPropiedad) current.data;
-                if (property.getColorGroup().equals(colorGroup)) {
-                    properties.add(property);
-                }
-            }
-            current = current.next;
-        }
-        return properties;
-    }
-
-    /**
      * Returns the total number of squares on the board.
      *
      * @return board size
@@ -227,6 +201,116 @@ public class Board {
      */
     public boolean isEmpty() {
         return size == 0;
+    }
+
+    /**
+     * Returns whether the given player owns EVERY property of a color group.
+     * Used to decide whether the higher rent applies. A group that does not
+     * exist on the board never counts as owned.
+     *
+     * @param player the player to check
+     * @param colorGroup the color group name (e.g. "Pink")
+     * @return true if the player owns all the properties of that group
+     */
+    public boolean ownsFullGroup(Player player, String colorGroup) {
+        if (player == null || colorGroup == null || isEmpty()) {
+            return false;
+        }
+
+        boolean groupFound = false;
+        Node current = first;
+        for (int i = 0; i < size; i++) {
+            if (current.data instanceof CasillaPropiedad) {
+                CasillaPropiedad property = (CasillaPropiedad) current.data;
+                if (property.getColorGroup().equals(colorGroup)) {
+                    groupFound = true;
+                    if (!player.equals(property.getOwner())) {
+                        return false;
+                    }
+                }
+            }
+            current = current.next;
+        }
+
+        return groupFound;
+    }
+
+    // ------------------------------------------------------------------ jail
+
+    /**
+     * Sends a player to jail. The jail is an area apart from the board, so on
+     * the board the player is kept on the "Jail Visit" square (where they are
+     * released) and the screens draw them in the jail instead.
+     *
+     * @param player the player to send
+     * @param turns number of turns the player will lose
+     */
+    public void sendToJail(Player player, int turns) {
+        checkNotEmpty();
+
+        if (player == null) {
+            throw new IllegalArgumentException("Player cannot be null.");
+        }
+        if (turns < 1) {
+            throw new IllegalArgumentException("Jail turns must be positive.");
+        }
+        if (!playerPositions.containsKey(player)) {
+            throw new IllegalArgumentException("Player is not on the board.");
+        }
+
+        Node jailVisit = first;
+        for (int i = 0; i < size; i++) {
+            if (jailVisit.data instanceof CasillaEvento
+                    && JAIL_VISIT_EVENT_ID.equals(((CasillaEvento) jailVisit.data).getEventId())) {
+                playerPositions.put(player, jailVisit);
+                jailTurns.put(player, turns);
+                return;
+            }
+            jailVisit = jailVisit.next;
+        }
+
+        throw new IllegalStateException("The board has no Jail Visit square.");
+    }
+
+    /**
+     * Returns whether the player is currently in jail.
+     */
+    public boolean isInJail(Player player) {
+        return getJailTurnsLeft(player) > 0;
+    }
+
+    /**
+     * Returns how many turns the player still has to lose in jail (0 if free).
+     */
+    public int getJailTurnsLeft(Player player) {
+        Integer turns = jailTurns.get(player);
+        return turns == null ? 0 : turns;
+    }
+
+    /**
+     * Makes a jailed player lose one turn. When the last one is lost, the
+     * player is free (they are already on the Jail Visit square).
+     *
+     * @return true if the player was in jail and lost the turn, false if free
+     */
+    public boolean serveJailTurn(Player player) {
+        int left = getJailTurnsLeft(player);
+        if (left <= 0) {
+            return false;
+        }
+        if (left == 1) {
+            jailTurns.remove(player);
+        } else {
+            jailTurns.put(player, left - 1);
+        }
+        return true;
+    }
+
+    /**
+     * Frees a player from jail right away (e.g. when they are eliminated).
+     */
+    public void releaseFromJail(Player player) {
+        jailTurns.remove(player);
     }
 
     private Node findNode(int index) {

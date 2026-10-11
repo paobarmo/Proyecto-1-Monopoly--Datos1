@@ -2,16 +2,12 @@
  * Concrete Casilla representing a purchasable property square (e.g. streets
  * in classic Monopoly). Holds price, color group, rent, and current owner.
  *
- * There are no houses: rent depends only on whether the owner holds every
- * property of the same color group or not.
+ * This implementation does not support houses: rent depends only on whether
+ * the owner holds every property of the same color group or not.
  *
- * When a player lands on it:
- *   - Without an owner: the player is offered to buy it (there are no
- *     auctions). Buying needs the player's card confirmation.
- *   - With another player as owner: the player pays the rent (the
- *     "group" rent if the owner holds the whole color group). If they
- *     cannot pay it, they lose the game.
- *   - Owned by the player themself: nothing happens.
+ * NOTE: Player is implemented separately; it is used here only as an
+ * identity (map key, equality check). All money movement goes through
+ * Bank, which is the sole authority over player balances.
  */
 public class CasillaPropiedad extends Casilla {
 
@@ -20,8 +16,10 @@ public class CasillaPropiedad extends Casilla {
     private final int rentWithoutGroup;
     private final int rentWithGroup;
 
-    // Changed by a background thread and read by the screen.
-    private volatile Player owner;
+    private Player owner;
+
+    // Used to ask whether the owner holds the whole color group (see onLand).
+    private Board board;
 
     public CasillaPropiedad(String name, int position, int price, String colorGroup,
                              int rentWithoutGroup, int rentWithGroup) {
@@ -73,6 +71,14 @@ public class CasillaPropiedad extends Casilla {
     }
 
     /**
+     * Gives the property access to the board it belongs to, so it can check
+     * whether its owner holds every property of the color group.
+     */
+    public void setBoard(Board board) {
+        this.board = board;
+    }
+
+    /**
      * Returns the rent currently owed for this square.
      *
      * @param ownerHasFullGroup whether the owner holds every property of
@@ -84,73 +90,37 @@ public class CasillaPropiedad extends Casilla {
     }
 
     @Override
-    public void onLand(Player player, Game game) {
-        Player currentOwner = owner;
-
-        if (currentOwner == null) {
-            offerPurchase(player, game);
-        } else if (!currentOwner.equals(player)) {
-            payRent(player, currentOwner, game);
-        }
-        // Landing on your own property has no effect.
-    }
-
-    private void offerPurchase(Player player, Game game) {
-        GameLog log = game.getLog();
-        Bank bank = game.getBank();
-
-        // The player must keep some money after buying (reaching 0 means losing).
-        if (bank.getBalance(player) <= price) {
-            log.add(log.nameOf(player) + " no tiene dinero suficiente para comprar " + getName() + ".");
+    public void onLand(Player player, Bank bank, GameLog log) {
+        if (!isOwned()) {
+            // No owner yet: landing here costs nothing. The purchase is offered
+            // right after by the screen (local game) or the server (network
+            // game), through Game.buyCurrentProperty().
             return;
         }
 
-        if (!game.askToBuy(player, this)) {
-            log.add("El " + log.lowerNameOf(player) + " no ha comprado.");
+        if (owner.equals(player)) {
+            // Landing on your own property has no effect.
             return;
         }
 
-        log.add("El " + log.lowerNameOf(player) + " compra " + getName() + " por " + price + ".");
-        log.add("Confirme su transacción.");
-        game.confirmTransaction(() -> bank.removeMoney(player, price));
-        setOwner(player);
-    }
+        // The owner charges the higher rent only if they hold every property
+        // of this color group.
+        boolean ownerHasFullGroup = board != null && board.ownsFullGroup(owner, colorGroup);
 
-    private void payRent(Player player, Player propertyOwner, Game game) {
-        GameLog log = game.getLog();
-        Bank bank = game.getBank();
-
-        int rent = getRent(ownerHasFullGroup(propertyOwner, game.getBoard()));
-        String payer = log.nameOf(player);
-        String ownerName = log.nameOf(propertyOwner);
-
-        // Not enough money (or it would be left at 0): the player loses.
-        if (bank.getBalance(player) <= rent) {
-            log.add(payer + " debe pagar " + rent + " de renta a " + ownerName
-                    + " por " + getName() + " pero no tiene dinero suficiente.");
-            game.eliminatePlayer(player);
-            return;
+        int rentDue = getRent(ownerHasFullGroup);
+        if (bank.transfer(player, owner, rentDue)) {
+            log.add(log.nameOf(player) + " paga " + rentDue + " de renta a "
+                    + log.nameOf(owner) + " por " + getName()
+                    + (ownerHasFullGroup ? " (grupo " + colorGroup + " completo)" : "") + ".");
+        } else {
+            log.add("No se pudo verificar la tarjeta de " + log.nameOf(player)
+                    + "; no se cobró la renta de " + getName() + ".");
         }
-
-        log.add(payer + " paga " + rent + " de renta a " + ownerName + " por " + getName() + ".");
-        log.add("Confirme su transacción.");
-        game.confirmTransaction(() -> bank.transfer(player, propertyOwner, rent));
-    }
-
-    // True if the player owns every property of this square's color group.
-    private boolean ownerHasFullGroup(Player propertyOwner, Board board) {
-        for (CasillaPropiedad property : board.getPropertiesByColorGroup(colorGroup)) {
-            if (!propertyOwner.equals(property.getOwner())) {
-                return false;
-            }
-        }
-        return true;
     }
 
     @Override
     public String describe() {
-        Player currentOwner = owner;
-        String ownerName = currentOwner != null ? currentOwner.toString() : "none";
+        String ownerName = isOwned() ? owner.toString() : "none";
         return getName() + " [" + colorGroup + "] price=" + price
                 + ", rent(no group)=" + rentWithoutGroup
                 + ", rent(with group)=" + rentWithGroup

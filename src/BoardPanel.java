@@ -1,8 +1,14 @@
+import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.Shape;
+import java.awt.geom.Ellipse2D;
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Image;
+import javax.swing.ImageIcon;
+import java.net.URL;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.util.ArrayList;
@@ -23,6 +29,8 @@ import javax.swing.JPanel;
  * Property squares are white with a small strip of the group color on the
  * edge facing the center of the board; the name is written in the white
  * part. Event squares and corners are white with only their name.
+ *
+ * A purchased property gets a border in the color of its owner.
  *
  * Players are drawn as circles of their color in a row along the outer edge
  * of the square they are standing on (the bottom edge in the corners).
@@ -50,14 +58,24 @@ public class BoardPanel extends JPanel {
     private final Game game;
     private final Board board;
 
+    // Solo imagen decorativa en el centro del tablero (no afecta casillas ni reglas).
+    private final Image centerBackground;
+
+
     // Used by the movement animation: while a player is being animated, they
     // are drawn on this square instead of the one the Board says they are on.
     private int visualPlayerIndex = -1;
     private int visualPosition = 0;
+    private int[] networkPositions;
+    private int[] networkOwners;
+    private int[] networkJailTurns;
+    private boolean[] networkActive;
 
     public BoardPanel(Game game) {
         this.game = Objects.requireNonNull(game, "game cannot be null.");
         this.board = game.getBoard();
+        URL backgroundUrl = BoardPanel.class.getResource("/images/fondo_centro.jpg");
+        centerBackground = backgroundUrl == null ? null : new ImageIcon(backgroundUrl).getImage();
 
         if (board.getSize() != EXPECTED_SQUARES) {
             throw new IllegalArgumentException(
@@ -85,6 +103,36 @@ public class BoardPanel extends JPanel {
         repaint();
     }
 
+    /** Solo presentación: el servidor es dueño de las posiciones. */
+    public void setNetworkPositions(int[] positions) {
+        this.networkPositions = positions == null ? null : positions.clone();
+        repaint();
+    }
+
+    /**
+     * Solo presentación: dueño de cada casilla según el servidor (-1 si no
+     * tiene). Mientras no se llame, se leen los dueños del Game local.
+     */
+    public void setNetworkOwners(int[] owners) {
+        this.networkOwners = owners == null ? null : owners.clone();
+        repaint();
+    }
+
+    /**
+     * Solo presentación: turnos de cárcel que le faltan a cada jugador según
+     * el servidor. Mientras no se llame, se leen del Game local.
+     */
+    public void setNetworkJailTurns(int[] turns) {
+        this.networkJailTurns = turns == null ? null : turns.clone();
+        repaint();
+    }
+
+    /** Solo presentación: qué jugadores siguen en la partida según el servidor. */
+    public void setNetworkActive(boolean[] active) {
+        this.networkActive = active == null ? null : active.clone();
+        repaint();
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -102,10 +150,32 @@ public class BoardPanel extends JPanel {
         // Read every player's position once per paint.
         int[] positions = new int[game.getPlayerCount()];
         for (int i = 0; i < positions.length; i++) {
-            positions[i] = game.isEliminated(i) ? -1 : game.getPlayerPosition(i);
+            positions[i] = game.getPlayerPosition(i);
         }
-        if (visualPlayerIndex >= 0 && visualPlayerIndex < positions.length
-                && !game.isEliminated(visualPlayerIndex)) {
+        if (networkPositions != null && networkPositions.length == positions.length) {
+            System.arraycopy(networkPositions, 0, positions, 0, positions.length);
+        }
+        // Players in jail are drawn in the JailPanel, not on the board. The player
+        // being animated is still shown until the animation ends.
+        for (int i = 0; i < positions.length; i++) {
+            boolean jailed = networkJailTurns != null && i < networkJailTurns.length
+                    ? networkJailTurns[i] > 0
+                    : game.isInJail(i);
+            if (jailed) {
+                positions[i] = -1;
+            }
+        }
+        // Eliminated players disappear from the board (the one being animated stays
+        // visible until the animation ends).
+        for (int i = 0; i < positions.length; i++) {
+            boolean gone = networkActive != null && i < networkActive.length
+                    ? !networkActive[i]
+                    : game.isEliminated(i);
+            if (gone) {
+                positions[i] = -1;
+            }
+        }
+        if (visualPlayerIndex >= 0 && visualPlayerIndex < positions.length) {
             positions[visualPlayerIndex] = visualPosition;
         }
 
@@ -113,11 +183,31 @@ public class BoardPanel extends JPanel {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
+        drawCenterBackground(g2, originX, originY, unit);
+
         for (int i = 0; i < board.getSize(); i++) {
             drawSquare(g2, board.getCasilla(i), i, originX, originY, unit, positions);
         }
 
         g2.dispose();
+    }
+
+    // Rellena únicamente el hueco central de 15 x 15 unidades.
+    // Recorta la fotografía al centro para conservar sus proporciones.
+    private void drawCenterBackground(Graphics2D g2, int originX, int originY, int unit) {
+        if (centerBackground == null) return;
+        int imageWidth = centerBackground.getWidth(this);
+        int imageHeight = centerBackground.getHeight(this);
+        if (imageWidth <= 0 || imageHeight <= 0) return;
+
+        int x = originX + CORNER_UNITS * unit;
+        int y = originY + CORNER_UNITS * unit;
+        int size = (BOARD_UNITS - 2 * CORNER_UNITS) * unit;
+        int crop = Math.min(imageWidth, imageHeight);
+        int sourceX = (imageWidth - crop) / 2;
+        int sourceY = (imageHeight - crop) / 2;
+        g2.drawImage(centerBackground, x, y, x + size, y + size,
+                sourceX, sourceY, sourceX + crop, sourceY + crop, this);
     }
 
     private void drawSquare(Graphics2D g2, Casilla casilla, int index,
@@ -143,7 +233,6 @@ public class BoardPanel extends JPanel {
             g2.fill(strip);
             g2.setColor(Color.BLACK);
             g2.draw(strip);
-            drawOwnerMarker(g2, strip, property);
 
             textArea = withoutBand(textArea, inward, stripThickness);
         }
@@ -151,8 +240,40 @@ public class BoardPanel extends JPanel {
         g2.setColor(Color.BLACK);
         g2.draw(bounds);
 
+        drawOwnerMark(g2, casilla, index, bounds, unit);
+
         drawWrappedText(g2, casilla.getName(), textArea, Math.max(MIN_FONT_SIZE, unit / 2));
         drawTokens(g2, band(bounds, tokenSide, tokenBand), index, positions, unit);
+    }
+
+    // ---------------------------------------------------------------- owners
+
+    // Marks a purchased property with a border in its owner's color.
+    private void drawOwnerMark(Graphics2D g2, Casilla casilla, int index, Rectangle bounds, int unit) {
+        int ownerIndex = ownerIndexOf(casilla, index);
+        if (ownerIndex < 0) {
+            return;
+        }
+
+        float thickness = Math.max(3f, unit / 5f);
+        int inset = Math.round(thickness / 2f) + 1;
+        java.awt.Stroke previous = g2.getStroke();
+        g2.setStroke(new BasicStroke(thickness));
+        g2.setColor(PlayerColors.forPlayer(ownerIndex));
+        g2.drawRect(bounds.x + inset, bounds.y + inset,
+                bounds.width - 2 * inset, bounds.height - 2 * inset);
+        g2.setStroke(previous);
+    }
+
+    // Owner of a square: from the server in a network game, else from the local Game.
+    private int ownerIndexOf(Casilla casilla, int index) {
+        if (!(casilla instanceof CasillaPropiedad)) {
+            return -1;
+        }
+        if (networkOwners != null) {
+            return index < networkOwners.length ? networkOwners[index] : -1;
+        }
+        return game.getPlayerIndex(((CasillaPropiedad) casilla).getOwner());
     }
 
     // ------------------------------------------------------------- geometry
@@ -274,40 +395,12 @@ public class BoardPanel extends JPanel {
 
     // --------------------------------------------------------------- tokens
 
-    // Small circle, in the owner's color, on the color strip of an owned property.
-    private void drawOwnerMarker(Graphics2D g2, Rectangle strip, CasillaPropiedad property) {
-        Player owner = property.getOwner();
-        if (owner == null) {
-            return;
-        }
-
-        int ownerIndex = game.indexOf(owner);
-        if (ownerIndex < 0) {
-            return;
-        }
-
-        int diameter = Math.max(6, (int) (Math.min(strip.width, strip.height) * 0.7));
-        int x = strip.x + (strip.width - diameter) / 2;
-        int y = strip.y + (strip.height - diameter) / 2;
-
-        if (!Decoration.paintAvatar(g2, ownerIndex, x, y, diameter)) {
-            g2.setColor(PlayerColors.forPlayer(ownerIndex));
-            g2.fillOval(x, y, diameter, diameter);
-        }
-        g2.setColor(Color.BLACK);
-        g2.drawOval(x, y, diameter, diameter);
-    }
-
     private int tokenDiameter(int unit) {
-        return Math.max(10, (int) (unit * 1.1));
+        // Ligeramente mayor que antes, sin alterar el tamaño de las casillas.
+        return Math.max(20, (int) (unit * 1.08));
     }
 
-    /**
-     * Draws the token (the player's image in a circle, or a circle in the
-     * player's color if there is no image) for every player standing on the
-     * given square, in a centered row (or column) inside the area. If they do
-     * not all fit, they overlap a little.
-     */
+    /** Dibuja los avatares como fichas redondas, solo en el tablero. */
     private void drawTokens(Graphics2D g2, Rectangle area, int squareIndex,
                             int[] positions, int unit) {
         List<Integer> playersHere = new ArrayList<>();
@@ -316,41 +409,44 @@ public class BoardPanel extends JPanel {
                 playersHere.add(i);
             }
         }
-        if (playersHere.isEmpty()) {
-            return;
-        }
+        if (playersHere.isEmpty()) return;
 
-        int diameter = tokenDiameter(unit);
         int count = playersHere.size();
         boolean horizontal = area.width >= area.height;
+        int availableLength = horizontal ? area.width : area.height;
+        int availableThickness = horizontal ? area.height : area.width;
 
-        // Distance between the starts of two neighboring tokens; smaller than
-        // the diameter (overlapping) when the row would not fit in the square.
-        int length = (horizontal ? area.width : area.height) - 2 * TOKEN_PADDING;
+        // Evita que se amontonen las fichas cuando coinciden varios jugadores.
+        int diameter = Math.min(tokenDiameter(unit),
+                Math.min(Math.max(8, availableThickness - 4),
+                        Math.max(8, (availableLength - (count - 1) * TOKEN_SPACING - 4) / count)));
         int step = diameter + TOKEN_SPACING;
-        if (count > 1 && (count - 1) * step + diameter > length) {
-            step = Math.max(1, (length - diameter) / (count - 1));
-        }
-        int totalLength = (count - 1) * step + diameter;
-
-        int startX = horizontal
-                ? area.x + (area.width - totalLength) / 2
+        int totalLength = count * diameter + (count - 1) * TOKEN_SPACING;
+        int startX = horizontal ? area.x + (area.width - totalLength) / 2
                 : area.x + (area.width - diameter) / 2;
-        int startY = horizontal
-                ? area.y + (area.height - diameter) / 2
+        int startY = horizontal ? area.y + (area.height - diameter) / 2
                 : area.y + (area.height - totalLength) / 2;
 
         for (int n = 0; n < count; n++) {
             int x = horizontal ? startX + n * step : startX;
             int y = horizontal ? startY : startY + n * step;
+            int player = playersHere.get(n);
 
-            int playerIndex = playersHere.get(n);
-            if (!Decoration.paintAvatar(g2, playerIndex, x, y, diameter)) {
-                g2.setColor(PlayerColors.forPlayer(playerIndex));
-                g2.fillOval(x, y, diameter, diameter);
-            }
-            g2.setColor(Color.BLACK);
-            g2.drawOval(x, y, diameter, diameter);
+            Graphics2D token = (Graphics2D) g2.create();
+            token.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            // La imagen sigue dibujándose mediante AvatarSprites: no cambia la selección.
+            Shape circle = new Ellipse2D.Double(x, y, diameter, diameter);
+            token.setColor(new Color(12, 8, 22, 100));
+            token.fillOval(x + 1, y + 2, diameter, diameter);
+            token.setColor(new Color(47, 31, 57));
+            token.fill(circle);
+            token.setClip(circle);
+            AvatarSprites.draw(token, player, x, y, diameter);
+            token.setClip(null);
+            token.setStroke(new BasicStroke(Math.max(1f, diameter * 0.075f)));
+            token.setColor(new Color(219, 178, 111));
+            token.draw(new Ellipse2D.Double(x + 1, y + 1, diameter - 2, diameter - 2));
+            token.dispose();
         }
     }
 
