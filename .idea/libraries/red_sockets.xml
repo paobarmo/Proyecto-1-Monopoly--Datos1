@@ -1,9 +1,0 @@
-<component name="libraryTable">
-  <library name="red-sockets">
-    <CLASSES>
-      <root url="jar://$PROJECT_DIR$/red-sockets.zip!/" />
-    </CLASSES>
-    <JAVADOC />
-    <SOURCES />
-  </library>
-</component>
