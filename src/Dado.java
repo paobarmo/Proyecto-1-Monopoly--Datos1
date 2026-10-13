@@ -1,7 +1,7 @@
 import java.util.Random;
 
 /**
- * Six-sided die. Created so DiceTestButton compiles and works while the
+ * Six-sided die. Used by the Monopoly dice logic while the
  * teammate's final dice implementation is not available.
  *
  * Replace this file with the teammate's Dado once it is delivered, as long

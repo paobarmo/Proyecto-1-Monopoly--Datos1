@@ -2,6 +2,12 @@ import java.awt.CardLayout;
 import java.awt.Dimension;
 import java.io.IOException;
 import javax.swing.JFrame;
+import javax.swing.AbstractAction;
+import javax.swing.JComponent;
+import javax.swing.KeyStroke;
+import java.awt.event.ActionEvent;
+import java.util.OptionalLong;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
@@ -10,8 +16,13 @@ public class MonopolyApp {
     private static final String MENU_SCREEN = "MENU";
     private static final String PLAYERS_SCREEN = "PLAYERS";
     private static final String GAME_SCREEN = "GAME";
+    // Arranque habitual: RFID simulado. Arranque con --hardware: Pico física.
+    private static boolean usarHardware = false;
 
     public static void main(String[] args) {
+        for (String arg : args) {
+            if ("--hardware".equals(arg)) usarHardware = true;
+        }
         SwingUtilities.invokeLater(MonopolyApp::createAndShowWindow);
     }
 
@@ -25,18 +36,7 @@ public class MonopolyApp {
         selection.setOnStart(playerCount -> {
             int option = HalloweenDialogs.modo(frame);
             if (option == 2) {
-                // Se conserva literalmente el comportamiento anterior.
-                Game game = new Game(playerCount, new ConsoleCardReader());
-                GamePanel gamePanel = new GamePanel(game);
-                screens.add(gamePanel, GAME_SCREEN);
-                layout.show(screens, GAME_SCREEN);
-                DiceTestWindow diceWindow = new DiceTestWindow(frame, gamePanel::applyRoll);
-                gamePanel.setOnGameEnd(() -> {
-                    diceWindow.dispose();                  // close the dice window
-                    layout.show(screens, MENU_SCREEN);     // Ok on Victory -> main menu
-                    screens.remove(gamePanel);             // next game starts clean
-                });
-                diceWindow.setVisible(true);
+                startLocal(frame, screens, layout, playerCount);
             } else if (option == 0 || option == 1) {
                 boolean host = option == 0;
                 String hostAddress = host ? "localhost" : HalloweenDialogs.entrada(frame,
@@ -62,12 +62,78 @@ public class MonopolyApp {
         frame.setVisible(true);
     }
 
+    /**
+     * Modo local: todos los jugadores usan una sola ventana.
+     * No utiliza DiceTestWindow ni ConsoleCardReader.
+     * Con --hardware: dados y RFID desde la Pico W (TCP 5001).
+     * Sin --hardware: ESPACIO para dados y tarjetas simuladas sin pedir UID.
+     */
+    private static void startLocal(JFrame frame, JPanel screens, CardLayout layout,
+                                   int playerCount) {
+        final long[] tarjetas = {57482001L, 2209842189L, 123L, 321L};
+        final AtomicReference<Game> partida = new AtomicReference<>();
+        final RfidSocketReader lector = new RfidSocketReader(usarHardware ? null : tarjetas, 30_000L);
+        final CardReader lectorParaGame = () -> {
+            // En modo sin hardware, identifica al jugador que tiene el turno.
+            Game juego = partida.get();
+            if (juego != null) lector.setJugadorActual(juego.getCurrentPlayerIndex());
+            return lector.readCardId();
+        };
+
+        Game juego;
+        try {
+            juego = new Game(playerCount, lectorParaGame);
+            partida.set(juego);
+        } catch (RuntimeException e) {
+            HalloweenDialogs.mensaje(frame, "Partida local", "No se pudo crear: " + e.getMessage());
+            return;
+        }
+        GamePanel panel = new GamePanel(juego);
+        final PuentePicoLocal[] puenteLocal = new PuentePicoLocal[1];
+
+        if (usarHardware) {
+            try {
+                // Lee los mensajes reales de la Pico y aplica los dados a este panel local.
+                PuentePicoLocal puente = new PuentePicoLocal(panel, lector, 5001);
+                puente.iniciar();
+                puenteLocal[0] = puente;
+                lector.setAlEsperar(i -> System.out.println(
+                        "RFID local: acerca la tarjeta del jugador " + (i + 1)));
+            } catch (IOException e) {
+                HalloweenDialogs.mensaje(frame, "Pico W",
+                        "No se pudo iniciar el puerto 5001: " + e.getMessage());
+                return;
+            }
+            juego.getLog().add("Modo local con Pico W. Usa el boton fisico para lanzar.");
+        } else {
+            // Permite probar el modo local sin Pico, sin abrir ningún botón de prueba.
+            Dado dado = new Dado();
+            panel.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+                    .put(KeyStroke.getKeyStroke("SPACE"), "lanzar-local");
+            panel.getActionMap().put("lanzar-local", new AbstractAction() {
+                @Override public void actionPerformed(ActionEvent e) {
+                    panel.applyRoll(dado.lanzar() + dado.lanzar(), () -> { });
+                }
+            });
+            juego.getLog().add("Modo local sin Pico: ESPACIO para lanzar; RFID simulado.");
+        }
+
+        panel.setOnGameEnd(() -> {
+            if (puenteLocal[0] != null) puenteLocal[0].close();
+            layout.show(screens, MENU_SCREEN);
+            screens.remove(panel);
+        });
+        screens.add(panel, GAME_SCREEN);
+        layout.show(screens, GAME_SCREEN);
+    }
+
     private static void connectNetwork(JFrame frame, JPanel screens, CardLayout layout,
                                        int desiredPlayers, boolean hosting, String hostAddress, String name) {
         final GamePanel[] remotePanel = new GamePanel[1];
         final Cliente[] client = new Cliente[1];
         final int[] ownIndex = {-1};
         final Servidor[] serverRef = new Servidor[1];
+        final PuentePicoMonopoly[] puenteRef = new PuentePicoMonopoly[1];
         final boolean[] ended = {false};
         final javax.swing.JDialog waiting = new javax.swing.JDialog(frame, "Sala de espera", false);
         final javax.swing.JLabel progress = new javax.swing.JLabel(
@@ -79,12 +145,22 @@ public class MonopolyApp {
             @Override protected Cliente doInBackground() throws Exception {
                 if (hosting) {
                     long[] cards = {57482001L, 2209842189L, 123L, 321L};
-                    RfidSocketReader reader = new RfidSocketReader(cards, 30_000);
+                    RfidSocketReader reader = new RfidSocketReader(usarHardware ? null : cards, 30_000);
                     Servidor server = new Servidor(5000, desiredPlayers, 100,
                             Game.TURN_TIME_SECONDS, reader,
                             (n, r) -> new MotorJuegoReal(new Game(n, r)));
                     serverRef[0] = server;
                     server.iniciar();
+                    if (usarHardware) {
+                        try {
+                            PuentePicoMonopoly puente = new PuentePicoMonopoly(server, 5001);
+                            puente.iniciar();
+                            puenteRef[0] = puente;
+                        } catch (IOException e) {
+                            server.detener();
+                            throw e;
+                        }
+                    }
                 }
                 Cliente connection = new Cliente(hostAddress, 5000, message ->
                         SwingUtilities.invokeLater(() -> {
@@ -97,12 +173,18 @@ public class MonopolyApp {
                             } else if ("INICIO".equals(parts[0]) && remotePanel[0] == null) {
                                 String[] names = parts[1].split(",", -1);
                                 // Modelo local SOLO PARA DIBUJAR el tablero original.
-                                Game displayGame = new Game(names.length, new ConsoleCardReader());
+                                // Este Game es SOLO visual: el servidor lleva el banco y las reglas.
+                                // No debe pedir UID por consola al dibujar el tablero.
+                                Game displayGame = new Game(names.length,
+                                        () -> java.util.OptionalLong.empty());
                                 remotePanel[0] = new GamePanel(displayGame, ownIndex[0],
                                         command -> client[0].enviar(command));
                                 final GamePanel panel = remotePanel[0];
                                 panel.setOnGameEnd(() -> {
                                     ended[0] = true;
+                                    if (puenteRef[0] != null) {
+                                        puenteRef[0].close();
+                                    }
                                     if (serverRef[0] != null) {
                                         serverRef[0].detener();   // frees port 5000 (host only)
                                     }

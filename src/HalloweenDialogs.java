@@ -12,7 +12,7 @@ public final class HalloweenDialogs {
 
     private HalloweenDialogs() {}
 
-    /** Devuelve los mismos índices que JOptionPane: 0..3, o -1 si se cierra. */
+    /** 0 = crear partida, 1 = unirse, 2 = jugar local, 3 = cancelar, -1 = cerrar. */
     public static int modo(Component parent) {
         return mostrar(parent, "Elige cómo jugar", "¿CÓMO QUIERES JUGAR?",
                 "Tu aventura de Monopoly Halloween comienza aquí",

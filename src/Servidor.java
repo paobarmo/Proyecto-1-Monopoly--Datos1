@@ -393,6 +393,16 @@ public class Servidor {
     }
 
     private void tirarDados(Manejador m) throws ErrorJuego {
+        tirarDados(m, l -> { });
+    }
+
+    /**
+     * Una tirada compartida entre la tecla de la interfaz y el botón físico.
+     * El callback de la Pico se ejecuta ANTES de resolver una casilla que pueda
+     * quedarse esperando RFID. Así el display recibe los dados sin timeout.
+     */
+    private void tirarDados(Manejador m, java.util.function.Consumer<MotorJuego.Lanzamiento> alGenerar)
+            throws ErrorJuego {
         exigirTurno(m);
         if (dadosLanzados) {
             throw new ErrorJuego("Ya lanzaste los dados en este turno");
@@ -401,6 +411,9 @@ public class Servidor {
         MotorJuego.Lanzamiento l = motor.lanzar();
         broadcast("DADOS|" + m.indice + "|" + l.d1 + "|" + l.d2 + "|" + l.desde + "|" + l.hasta
                 + "|" + Protocolo.limpiar(l.casilla));
+        // Si el comando vino del botón físico, responder a la Pico AQUÍ.
+        // motor.resolver() puede esperar hasta 30 segundos por una tarjeta.
+        alGenerar.accept(l);
         MotorJuego.Resolucion r = motor.resolver();
         boolean huboEliminacion = false;
         if (r.eliminado) {
@@ -421,6 +434,45 @@ public class Servidor {
         } else if (pendienteCompra) {
             m.enviar("PUEDE_COMPRAR|" + Protocolo.limpiar(l.casilla) + "|" + r.precio);
         }
+    }
+
+    /**
+     * Entrada para la Raspberry Pi Pico W. No crea otro turno ni otro generador:
+     * utiliza exactamente el mismo lanzamiento que las ventanas del juego.
+     * La respuesta debe enviarse al socket de la Pico dentro del callback.
+     */
+    public void solicitarDadosPico(java.util.function.Consumer<String> responder) {
+        synchronized (lock) {
+            if (!iniciada) {
+                responder.accept("ERROR|PARTIDA_NO_INICIADA");
+                return;
+            }
+            if (terminada) {
+                responder.accept("ERROR|PARTIDA_TERMINADA");
+                return;
+            }
+            if (dadosLanzados) {
+                responder.accept("ERROR|YA_LANZADOS");
+                return;
+            }
+            int actual = motor.turnoActual();
+            if (!motor.activo(actual)) {
+                responder.accept("ERROR|JUGADOR_INACTIVO");
+                return;
+            }
+            try {
+                // Le enviamos al cliente que tiene el turno el resultado oficial.
+                // La Pico recibe DADOS|d1|d2 antes de los efectos de la casilla.
+                tirarDados(jugadores.get(actual), l -> responder.accept("DADOS|" + l.d1 + "|" + l.d2));
+            } catch (ErrorJuego e) {
+                responder.accept("ERROR|" + Protocolo.soloUnaLinea(e.getMessage()));
+            }
+        }
+    }
+
+    /** Entrega el UID al lector del banco sin tomar el lock de la partida. */
+    public void recibirRFIDPico(long uid) {
+        lector.presentar(uid);
     }
 
     private void comprar(Manejador m) throws ErrorJuego {
@@ -607,6 +659,9 @@ public class Servidor {
         Servidor s = new Servidor(puerto, jugadores, turnos, Game.TURN_TIME_SECONDS, lector,
                 (n, l) -> new MotorJuegoReal(new Game(n, l)));
         s.iniciar();
+        if (hardware) {
+            new PuentePicoMonopoly(s, 5001).iniciar();
+        }
         System.out.println("Servidor Monopoly escuchando en el puerto " + s.getPuerto()
                 + (hardware ? " (lector RFID físico)" : " (RFID simulado)")
                 + ", esperando " + jugadores + " jugadores.");

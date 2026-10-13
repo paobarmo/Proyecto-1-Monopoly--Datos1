@@ -5,7 +5,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.IntConsumer;
 
 /**
- * CardReader para el servidor en red. Reemplaza a ConsoleCardReader.
+ * CardReader para el servidor en red. Puede usar UID reales o simulados.
  *
  * Modo hardware: el módulo electrónico envía "RFID|uid" al servidor y esa tarjeta se entrega a
  * Bank.verify(). Si no llega ninguna en esperaMs, la operación se rechaza (readCardId vacío).
@@ -18,6 +18,7 @@ public class RfidSocketReader implements CardReader {
     private final long esperaMs;
     private final BlockingQueue<Long> cola = new LinkedBlockingQueue<>();
     private volatile int jugadorActual = -1;
+    private volatile boolean esperandoRFID = false;
     private volatile IntConsumer alEsperar = i -> { };
 
     /** @param tarjetasSimuladas ids por índice de jugador, o null para usar el lector físico */
@@ -41,7 +42,8 @@ public class RfidSocketReader implements CardReader {
 
     /** Llamado por el hilo que atiende al módulo electrónico. No toma el lock del juego. */
     public void presentar(long uid) {
-        cola.offer(uid);
+        // Una tarjeta pasada antes de una compra no debe autorizar otra futura.
+        if (tarjetasSimuladas == null && esperandoRFID) cola.offer(uid);
     }
 
     public void limpiar() {
@@ -55,13 +57,18 @@ public class RfidSocketReader implements CardReader {
             return (i >= 0 && i < tarjetasSimuladas.length)
                     ? OptionalLong.of(tarjetasSimuladas[i]) : OptionalLong.empty();
         }
-        alEsperar.accept(i);
+        cola.clear();
+        esperandoRFID = true;
         try {
+            alEsperar.accept(i);
             Long uid = cola.poll(esperaMs, TimeUnit.MILLISECONDS);
             return uid == null ? OptionalLong.empty() : OptionalLong.of(uid);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return OptionalLong.empty();
+        } finally {
+            esperandoRFID = false;
+            cola.clear();
         }
     }
 }
