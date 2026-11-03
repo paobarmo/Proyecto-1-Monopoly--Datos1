@@ -22,11 +22,15 @@ import java.util.concurrent.ExecutionException;
 
 import javax.swing.BorderFactory;
 import javax.swing.JComponent;
+import javax.swing.AbstractAction;
+import javax.swing.KeyStroke;
+import java.awt.event.ActionEvent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingWorker;
 import javax.swing.Timer;
+import javax.swing.JButton;
 
 /**
  * Main game screen: gray background, on top a text saying whose turn it is
@@ -75,13 +79,12 @@ public class GamePanel extends JPanel {
     private boolean networkFinished;
     private Consumer<String> networkSender;
     private int[] networkPositions;
+    private int[] networkBalances;
     private int networkAnimationPlayer = -1;
     private int networkAnimationFrom;
     private int networkAnimationTo;
     private Timer networkStepTimer;
     private String[] networkNames;
-    // Único control de compra en red: ventana con clic; sin teclas de juego.
-    private JDialog networkPurchaseDialog;
     private int[] networkJailTurns;
     private JailPanel jailPanel;
 
@@ -132,6 +135,37 @@ public class GamePanel extends JPanel {
         turnTimer = new Timer(1000, e -> onTimerTick());
         resetTurnTimer();
 
+        JButton terminarPartida = new JButton("TERMINAR PARTIDA");
+
+        terminarPartida.setFont(new Font("Georgia", Font.BOLD, 16));
+        terminarPartida.setBackground(new Color(222, 180, 116));
+        terminarPartida.setForeground(new Color(31, 23, 42));
+        terminarPartida.setFocusPainted(false);
+
+        terminarPartida.addActionListener(e -> {
+            int respuesta = javax.swing.JOptionPane.showConfirmDialog(
+                    this,
+                    "¿Deseas terminar la partida ahora?",
+                    "Confirmar",
+                    javax.swing.JOptionPane.YES_NO_OPTION
+            );
+
+            if (respuesta != javax.swing.JOptionPane.YES_OPTION) {
+                return;
+            }
+
+            if (networkMode) {
+                if (!networkFinished && networkSender != null) {
+                    networkSender.accept(Protocolo.TERMINAR_PARTIDA);
+                }
+            } else {
+                showVictory(game.getRichestPlayerIndexes());
+            }
+        });
+
+        header.add(terminarPartida);
+
+
         boardPanel = new BoardPanel(game);
 
         add(header, BorderLayout.NORTH);
@@ -153,64 +187,33 @@ public class GamePanel extends JPanel {
         turnTimer.stop();
         timerLabel.setText("Esperando turno");
         turnLabel.setText("Esperando servidor");
-        game.getLog().add("Red: tira dados con la Pico W; compra o rechaza con la ventana; ESC pausa.");
+        // Los controles de red se manejan por teclado; no se agregan botones al diseño.
+        registerNetworkKey("SPACE", "tirar", Protocolo.TIRAR_DADOS);
+        registerNetworkKey("C", "comprar", Protocolo.COMPRAR_PROPIEDAD);
+        registerNetworkKey("N", "rechazar", Protocolo.NO_COMPRAR);
+        registerNetworkKey("F", "terminar", Protocolo.TERMINAR_TURNO);
+        game.getLog().add("Red: ESPACIO tirar dados; C comprar; N no comprar; F terminar turno; ESC pausa.");
     }
 
-    /** Ventana no modal para que los mensajes de la red sigan actualizando el tablero. */
-    private void mostrarDecisionCompra(String casilla, String precio) {
-        cerrarDecisionCompra();
-        if (!networkMode || networkLocalIndex != networkTurnIndex || networkFinished) return;
-        final int turno = networkTurnIndex;
-        JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(this),
-                "Decidir compra", Dialog.ModalityType.MODELESS);
-        JPanel contenido = new JPanel(new java.awt.BorderLayout(10, 14));
-        contenido.setBorder(BorderFactory.createEmptyBorder(20, 24, 20, 24));
-        javax.swing.JLabel texto = new javax.swing.JLabel(
-                "<html><center>¿Comprar " + escaparHtmlTexto(casilla) + " por $"
-                        + escaparHtmlTexto(precio) + "?<br>Decide en 10 segundos.</center></html>");
-        contenido.add(texto, java.awt.BorderLayout.CENTER);
-        JPanel acciones = new JPanel(new FlowLayout());
-        javax.swing.JButton si = new javax.swing.JButton("Comprar");
-        javax.swing.JButton no = new javax.swing.JButton("No comprar");
-        si.addActionListener(e -> {
-            dialog.dispose();
-            if (networkPendingPurchase && networkTurnIndex == turno && networkSender != null)
-                networkSender.accept(Protocolo.COMPRAR_PROPIEDAD);
-        });
-        no.addActionListener(e -> {
-            dialog.dispose();
-            if (networkPendingPurchase && networkTurnIndex == turno && networkSender != null)
-                networkSender.accept(Protocolo.NO_COMPRAR);
-        });
-        acciones.add(si);
-        acciones.add(no);
-        contenido.add(acciones, java.awt.BorderLayout.SOUTH);
-        dialog.setContentPane(contenido);
-        dialog.setDefaultCloseOperation(javax.swing.WindowConstants.DISPOSE_ON_CLOSE);
-        dialog.pack();
-        dialog.setLocationRelativeTo(this);
-        networkPurchaseDialog = dialog;
-        Timer cierre = new Timer(10_000, e -> dialog.dispose());
-        cierre.setRepeats(false);
-        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
-            @Override public void windowClosed(java.awt.event.WindowEvent e) {
-                cierre.stop();
-                if (networkPurchaseDialog == dialog) networkPurchaseDialog = null;
+    private void registerNetworkKey(String key, String actionName, String command) {
+        String name = "red_" + actionName;
+        getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(key), name);
+        getActionMap().put(name, new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) {
+                if (canSendNetworkCommand(command)) networkSender.accept(command);
             }
         });
-        cierre.start();
-        dialog.setVisible(true);
     }
 
-    private String escaparHtmlTexto(String texto) {
-        return texto.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-    }
-
-    private void cerrarDecisionCompra() {
-        if (networkPurchaseDialog != null) {
-            JDialog anterior = networkPurchaseDialog;
-            networkPurchaseDialog = null;
-            anterior.dispose();
+    private boolean canSendNetworkCommand(String command) {
+        if (!networkMode || networkFinished || networkLocalIndex != networkTurnIndex) return false;
+        if (networkAnimationPlayer >= 0) return false;
+        switch (command) {
+            case Protocolo.TIRAR_DADOS: return !networkRolled;
+            case Protocolo.COMPRAR_PROPIEDAD:
+            case Protocolo.NO_COMPRAR: return networkPendingPurchase;
+            case Protocolo.TERMINAR_TURNO: return networkRolled && !networkPendingPurchase;
+            default: return false;
         }
     }
 
@@ -262,7 +265,6 @@ public class GamePanel extends JPanel {
                     game.getLog().add("Partida compartida iniciada: " + p[1]);
                     break;
                 case "TURNO":
-                    cerrarDecisionCompra();
                     networkTurnIndex = Integer.parseInt(p[1]);
                     networkRolled = false;
                     networkPendingPurchase = false;
@@ -276,6 +278,7 @@ public class GamePanel extends JPanel {
                     networkTurnIndex = Integer.parseInt(p[1]);
                     String[] jugadores = p[2].split(";", -1);
                     int[] positions = new int[game.getPlayerCount()];
+                    int[] balances = new int[game.getPlayerCount()];
                     int[] jail = new int[game.getPlayerCount()];
                     boolean[] active = new boolean[game.getPlayerCount()];
                     java.util.Arrays.fill(active, true);
@@ -285,6 +288,7 @@ public class GamePanel extends JPanel {
                         int index = Integer.parseInt(d[0]);
                         if (index < 0 || index >= positions.length) continue;
                         positions[index] = Integer.parseInt(d[3]);
+                        balances[index] = Integer.parseInt(d[2]);
                         if (d.length >= 6) jail[index] = Integer.parseInt(d[5]);
                         active[index] = Boolean.parseBoolean(d[4]);
                         playerPanels.get(index).setNetworkState(d[1], Integer.parseInt(d[2]), Boolean.parseBoolean(d[4]));
@@ -293,6 +297,7 @@ public class GamePanel extends JPanel {
                     boardPanel.setNetworkActive(active);
                     syncEliminatedPanels();
                     networkPositions = positions;
+                    networkBalances = balances;
                     boardPanel.setNetworkPositions(positions);
                     networkJailTurns = jail;
                     boardPanel.setNetworkJailTurns(jail);
@@ -309,39 +314,60 @@ public class GamePanel extends JPanel {
                 case "PUEDE_COMPRAR":
                     networkPendingPurchase = true;
                     game.getLog().add("Puedes comprar " + p[1] + " por $" + p[2]);
-                    if (p.length > 2) mostrarDecisionCompra(p[1], p[2]);
-                    break;
-                case "CIERRE_TURNO":
-                    // El servidor controla los diez segundos: el cliente solo los muestra.
-                    secondsLeft = Integer.parseInt(p[1]);
-                    updateTimerLabel();
-                    if (!turnTimer.isRunning()) turnTimer.start();
                     break;
                 case "COMPRA":
-                    cerrarDecisionCompra();
                     networkPendingPurchase = false;
                     game.getLog().add(p[2]);
                     break;
                 case "OK":
                     if (p.length > 1 && "NO_COMPRAR".equals(p[1])) networkPendingPurchase = false;
                     break;
+
                 case "FIN":
-                    cerrarDecisionCompra();
                     networkFinished = true;
                     gameEnded = true;
                     turnTimer.stop();
                     timerLabel.setText("Fin de la partida");
-                    String winnerName = "-1".equals(p[1]) ? "Nadie" : p[2];
-                    game.getLog().add("Ganador: " + winnerName);
                     closePauseDialogs();
                     repaint();
-                    HalloweenDialogs.victoria(this, winnerName);
-                    onGameEnd.run();
+
+                    String winnerName = "-1".equals(p[1]) ? "Nadie" : p[2];
+                    game.getLog().add("Ganador: " + winnerName);
+
+                    if (p.length > 3 && "DESCONEXION".equals(p[3])) {
+                        winnerName = "Partida cancelada";
+                    }
+
+                    mostrarPantallaFinal(winnerName);
                     break;
-                case "LOG": case "EVENTO": case "ERROR":
-                    game.getLog().add(p.length > 1 ? p[1] : line);
-                    if ("ERROR".equals(p[0])) javax.swing.JOptionPane.showMessageDialog(this, p[1]);
+
+                case "LOG":
+                case "EVENTO":
+                case "ERROR":
+                    String mensaje = p.length > 1 ? p[1] : line;
+                    game.getLog().add(mensaje);
+
+                    if ("ERROR".equals(p[0])) {
+                        javax.swing.JOptionPane.showMessageDialog(
+                                this,
+                                mensaje,
+                                "Error",
+                                javax.swing.JOptionPane.ERROR_MESSAGE
+                        );
+                    }
+
+                    if ("EVENTO".equals(p[0])
+                            && mensaje.contains("se ha desconectado")) {
+
+                        javax.swing.JOptionPane.showMessageDialog(
+                                this,
+                                mensaje + "\nEl juego continuará con los jugadores restantes.",
+                                "Jugador desconectado",
+                                javax.swing.JOptionPane.INFORMATION_MESSAGE
+                        );
+                    }
                     break;
+
                 case "ELIMINADO":
                     game.getLog().add("Eliminado: " + p[2]);
                     break;
@@ -500,19 +526,10 @@ public class GamePanel extends JPanel {
             return;
         }
 
-        javax.swing.JOptionPane selector = new javax.swing.JOptionPane(
+        int answer = javax.swing.JOptionPane.showConfirmDialog(this,
                 buyerName + ", ¿quieres comprar " + property.getName() + " por $" + price + "?\n"
-                        + "Tu saldo: $" + balance + "\nTienes 10 segundos para decidir.",
-                javax.swing.JOptionPane.QUESTION_MESSAGE, javax.swing.JOptionPane.YES_NO_OPTION);
-        JDialog dialogo = selector.createDialog(this, "Comprar propiedad");
-        Timer cierre = new Timer(10_000, e -> dialogo.dispose());
-        cierre.setRepeats(false);
-        cierre.start();
-        dialogo.setVisible(true);
-        cierre.stop();
-        Object seleccionado = selector.getValue();
-        int answer = seleccionado instanceof Integer ? (Integer) seleccionado
-                : javax.swing.JOptionPane.NO_OPTION;
+                        + "Tu saldo: $" + balance,
+                "Comprar propiedad", javax.swing.JOptionPane.YES_NO_OPTION);
 
         if (answer != javax.swing.JOptionPane.YES_OPTION) {
             game.getLog().add(buyerName + " decidió no comprar " + property.getName() + ".");
@@ -590,6 +607,56 @@ public class GamePanel extends JPanel {
                 thenOnSwingThread.run();
             }
         }.execute();
+    }
+    private String[][] construirResultadosFinales() {
+        int n = game.getPlayerCount();
+        String[][] resultados = new String[n][2];
+
+        for (int i = 0; i < n; i++) {
+            String nombre;
+            int puntos;
+
+            if (networkMode) {
+                nombre = (networkNames != null && i < networkNames.length && networkNames[i] != null
+                        && !networkNames[i].isBlank())
+                        ? networkNames[i]
+                        : game.getPlayerName(i);
+
+                puntos = (networkBalances != null && i < networkBalances.length)
+                        ? networkBalances[i]
+                        : 0;
+            } else {
+                nombre = game.getPlayerName(i);
+                puntos = game.getBank().getBalance(game.getPlayer(i));
+            }
+
+            resultados[i][0] = nombre;
+            resultados[i][1] = String.valueOf(puntos);
+        }
+
+        return resultados;
+    }
+
+    private String obtenerNombreGanadorDesdeIndices(java.util.List<Integer> winners) {
+        if (winners == null || winners.isEmpty()) {
+            return "Nadie";
+        }
+
+        StringBuilder nombre = new StringBuilder();
+        for (int i = 0; i < winners.size(); i++) {
+            int index = winners.get(i);
+            String n = game.getPlayerName(index);
+            if (i > 0) {
+                nombre.append(" y ");
+            }
+            nombre.append(n);
+        }
+        return nombre.toString();
+    }
+
+    private void mostrarPantallaFinal(String ganador) {
+        String[][] resultados = construirResultadosFinales();
+        PantallaFinal.mostrar(this, ganador, resultados, onGameEnd);
     }
 
     // ------------------------------------------------ ESC, victory, eliminations
@@ -680,27 +747,17 @@ public class GamePanel extends JPanel {
         if (gameEnded) {
             return;
         }
+
         gameEnded = true;
         turnTimer.stop();
 
         closePauseDialogs();
 
-        StringBuilder name = new StringBuilder();
-        for (int winner : winners) {
-            if (name.length() > 0) {
-                name.append(" y ");
-            }
-            name.append(game.getPlayerName(winner));
-        }
-        if (name.length() == 0) {
-            name.append("Nadie");
-        }
+        String ganador = obtenerNombreGanadorDesdeIndices(winners);
+        game.getLog().add("Victory: " + ganador);
 
-        game.getLog().add("Victory: " + name);
-        HalloweenDialogs.victoria(this, name.toString());
-        onGameEnd.run();
+        mostrarPantallaFinal(ganador);
     }
-
     private boolean isGone(int index) {
         if (networkMode) {
             return networkActive != null && index >= 0 && index < networkActive.length

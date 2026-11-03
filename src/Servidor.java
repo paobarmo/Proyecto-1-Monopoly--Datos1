@@ -38,8 +38,6 @@ public class Servidor {
     private final RfidSocketReader lector;
     private final FabricaMotor fabrica;
 
-    // Después de resolver la casilla, el jugador dispone de 10 s para decidir compra.
-    private static final int DECISION_SECONDS = 10;
     private final Object lock = new Object();
     private final List<Manejador> jugadores = new ArrayList<>();
     private final List<Manejador> todos = new CopyOnWriteArrayList<>();
@@ -70,16 +68,19 @@ public class Servidor {
         this.lector.setAlEsperar(i -> broadcast("ESPERANDO_TARJETA|" + i + "|" + lector.getEsperaSegundos()));
     }
 
+    //se encarga de encender el servidor de Monopoly y ponerlo a esperar conexiones de los jugadores.
     public void iniciar() throws IOException {
         serverSocket = new ServerSocket(puertoSolicitado);
         // Hilo normal (no daemon): mantiene vivo el programa mientras el servidor escucha.
         Thread t = new Thread(this::aceptar, "aceptar-conexiones");
         t.start();
     }
-
+//para  obtener el número de puerto en el que está escuchando el servidor.
     public int getPuerto() {
         return serverSocket.getLocalPort();
     }
+
+    // Este método se encarga de cerrar el servidor y las conexiones cuando ya no se necesitan.
 
     public void detener() {
         try {
@@ -92,12 +93,14 @@ public class Servidor {
         }
         reloj.shutdownNow();
     }
-
+//Primera parte: mantener el servidor escuchando
     private void aceptar() {
         while (!serverSocket.isClosed()) {
             try {
+                //espera a que alguien se conecte.
                 Socket s = serverSocket.accept();
                 Manejador m = new Manejador(s);
+                //Porque el servidor necesita recibir mensajes de varios jugadores sin que uno bloquee la comunicación con los demás.
                 Thread t = new Thread(m, "cliente-" + s.getRemoteSocketAddress());
                 t.setDaemon(true);
                 t.start();
@@ -110,7 +113,7 @@ public class Servidor {
     }
 
     // ------------------------------------------------------------------ envío
-
+//permite enviar un mismo mensaje a todos los clientes conectados al servidor de Monopoly.
     private void broadcast(String msg) {
         for (Manejador m : todos) {
             m.enviar(msg);
@@ -169,10 +172,13 @@ public class Servidor {
 
     private void iniciarPartida() {
         motor = fabrica.crear(nJugadores, lector);
+
         for (int i = 0; i < nJugadores; i++) {
             motor.registrarNombre(i, jugadores.get(i).nombre);
         }
+
         motor.alLog(msg -> broadcast("LOG|" + Protocolo.soloUnaLinea(msg)));
+
         iniciada = true;
         broadcast("INICIO|" + nombres());
         broadcast(estado());
@@ -182,31 +188,56 @@ public class Servidor {
     private void desconectar(Manejador m) {
         todos.remove(m);
         m.cerrar();
+
         synchronized (lock) {
             if (m.indice < 0 || !jugadores.contains(m)) {
                 return;
             }
+
             if (!iniciada) {
                 jugadores.remove(m);
+
                 for (int i = 0; i < jugadores.size(); i++) {
-                    jugadores.get(i).indice = i;
-                    jugadores.get(i).enviar("BIENVENIDO|" + i + "|" + jugadores.get(i).nombre);
+                    Manejador jugador = jugadores.get(i);
+                    jugador.indice = i;
+                    jugador.enviar("BIENVENIDO|" + i + "|" + jugador.nombre);
                 }
-                broadcast("LOBBY|" + jugadores.size() + "|" + nJugadores + "|" + nombres());
+
+                broadcast("LOBBY|" + jugadores.size()
+                        + "|" + nJugadores + "|" + nombres());
                 return;
             }
+
             if (terminada || !motor.activo(m.indice)) {
                 return;
             }
+
             boolean eraSuTurno = motor.turnoActual() == m.indice;
+
             motor.eliminar(m.indice);
-            broadcast("EVENTO|" + m.nombre + " se desconectó y queda eliminado");
+
+            if (nJugadores > 2) {
+                broadcast("EVENTO|" + m.nombre + " se ha desconectado.");
+            }
             broadcast("ELIMINADO|" + m.indice + "|" + m.nombre);
+
+            if (nJugadores == 2) {
+                terminada = true;
+                cancelarTemporizador();
+
+                broadcast(estado());
+                broadcast("FIN|-1|Partida cancelada|DESCONEXION|0");
+                return;
+            }
+
             broadcast(estado());
+
+            if (verificarFin(false)) {
+                return;
+            }
+
             if (eraSuTurno) {
                 avanzar();
-            } else {
-                verificarFin(false);
             }
         }
     }
@@ -225,24 +256,15 @@ public class Servidor {
     }
 
     private void programarTemporizador(int turno) {
-        programarTemporizador(turno, tiempoTurnoSeg);
-    }
-
-    private void programarTemporizador(int turno, int segundos) {
         cancelarTemporizador();
         temporizador = reloj.schedule(() -> {
             synchronized (lock) {
                 if (!terminada && turno == numTurno) {
-                    if (pendienteCompra) {
-                        broadcast("EVENTO|Tiempo agotado: no se compró la propiedad");
-                        pendienteCompra = false;
-                    } else {
-                        broadcast("EVENTO|Se acabó el tiempo de " + jugadores.get(motor.turnoActual()).nombre);
-                    }
+                    broadcast("EVENTO|Se acabó el tiempo de " + jugadores.get(motor.turnoActual()).nombre);
                     avanzar();
                 }
             }
-        }, segundos, TimeUnit.SECONDS);
+        }, tiempoTurnoSeg, TimeUnit.SECONDS);
     }
 
     private void cancelarTemporizador() {
@@ -445,12 +467,6 @@ public class Servidor {
         } else if (pendienteCompra) {
             m.enviar("PUEDE_COMPRAR|" + Protocolo.limpiar(l.casilla) + "|" + r.precio);
         }
-        // Se cuenta desde que la casilla se resolvió: no desde la animación
-        // y nunca durante una lectura RFID pendiente (que puede tardar 30 s).
-        if (!terminada && !yoEliminado) {
-            broadcast("CIERRE_TURNO|" + DECISION_SECONDS);
-            programarTemporizador(numTurno, DECISION_SECONDS);
-        }
     }
 
     /**
@@ -506,9 +522,9 @@ public class Servidor {
         boolean huboEliminacion = eliminarSinSaldo();   // comprar con todo el dinero -> saldo 0
         broadcast(estado());
         m.enviar("OK|COMPRA");
-        // Terminó la elección: pasar de turno sin necesitar la tecla F.
-        if (huboEliminacion && verificarFin(false)) return;
-        avanzar();
+        if (huboEliminacion && !verificarFin(false) && !motor.activo(m.indice)) {
+            avanzar();
+        }
     }
 
     private void noComprar(Manejador m) throws ErrorJuego {
@@ -519,7 +535,6 @@ public class Servidor {
         pendienteCompra = false;
         broadcast("EVENTO|" + m.nombre + " decidió no comprar");
         m.enviar("OK|NO_COMPRAR");
-        avanzar();
     }
 
     private void consultarTransacciones(Manejador m) throws ErrorJuego {
