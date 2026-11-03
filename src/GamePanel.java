@@ -682,6 +682,7 @@ public class GamePanel extends JPanel {
         }
         gameEnded = true;
         turnTimer.stop();
+
         closePauseDialogs();
 
         StringBuilder name = new StringBuilder();

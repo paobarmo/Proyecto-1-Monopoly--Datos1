@@ -12,7 +12,7 @@ public class PruebaPico {
             System.out.println("     java PruebaPico \"RFID|123456789\"");
             return;
         }
-        try (Socket conexion = new Socket("127.0.0.1", 5001)) {
+        try (Socket conexion = new Socket("172.20.10.2", 5001)) {
             conexion.setSoTimeout(5000);
             PrintWriter salida = new PrintWriter(conexion.getOutputStream(), true,
                     StandardCharsets.UTF_8);
