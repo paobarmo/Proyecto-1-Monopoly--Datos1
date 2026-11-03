@@ -95,9 +95,11 @@ public class MotorJuegoReal implements MotorJuego {
                 r.eliminado = true;
                 return r;
             }
-            if (llegada instanceof CasillaPropiedad && !((CasillaPropiedad) llegada).isOwned()) {
+            // Mira donde está el jugador ahora (una carta de Fortuna pudo moverlo).
+            CasillaPropiedad comprable = game.getBuyableProperty();
+            if (comprable != null) {
                 r.puedeComprar = true;
-                r.precio = ((CasillaPropiedad) llegada).getPrice();
+                r.precio = comprable.getPrice();
             }
         } catch (IllegalStateException e) {
             // Red de seguridad (Bank.checkFunds): no puede cubrir un pago obligatorio -> eliminado

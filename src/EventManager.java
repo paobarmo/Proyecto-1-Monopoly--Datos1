@@ -23,6 +23,13 @@ public final class EventManager {
     private static final int TAX_AMOUNT = 200;
     private static final int JAIL_TURNS = 3;
 
+    // Fortune cards (see MazoEventos / CartaEvento).
+    private static final String FORTUNE_EVENT_ID = "FORTUNE";   // must match the id in BoardFactory
+    private static final MazoEventos FORTUNE_DECK = new MazoEventos();
+    private static final int FORTUNE_REWARD = 100;
+    private static final int FORTUNE_FINE = 50;
+    private static final String CANDY_STREET = "Candy Street";   // must match the name in BoardFactory
+
     /** An event that also needs the board (e.g. to move a player somewhere). */
     @FunctionalInterface
     private interface BoardEvent {
@@ -44,6 +51,7 @@ public final class EventManager {
         EVENTS.put("GO", EventManager::goEvent);
         EVENTS.put("PAY_TAXES", EventManager::payTaxesEvent);
         BOARD_EVENTS.put("GO_TO_JAIL", EventManager::goToJailEvent);
+        BOARD_EVENTS.put(FORTUNE_EVENT_ID, EventManager::fortuneEvent);
         // Jail Visit had an error message because it was not registered, si I made it as nothing here.
         EVENTS.put("JAIL_VISIT", (player, bank, log) -> { });
     }
@@ -118,6 +126,45 @@ public final class EventManager {
         board.sendToJail(player, JAIL_TURNS);
     }
 
+    // The player draws a Fortune card and its effect is applied.
+    private static void fortuneEvent(Player player, Bank bank, GameLog log, Board board) {
+        CartaEvento carta = FORTUNE_DECK.sacar();
+        String name = log.nameOf(player);
+
+        log.add(name + " saca una carta de Fortuna.");
+        log.add(carta.getTexto());
+
+        switch (carta.getNumero()) {
+            case 1: // Avanza 3 espacios
+                moveAndResolve(player, bank, log, board, 3, true);
+                break;
+            case 2: // Retrocede 3 espacios
+                // Board only moves forward: going back 3 = advancing (size - 3).
+                // The squares "passed" are ignored so Go is not collected by mistake.
+                moveAndResolve(player, bank, log, board, board.getSize() - 3, false);
+                break;
+            case 3: // Error bancario: recibes 100
+                log.add("Confirme su transacción.");
+                runWithConfirmation(log, () -> bank.addMoney(player, FORTUNE_REWARD));
+                break;
+            case 4: // La matrícula: paga 50
+                if (bank.getBalance(player) < FORTUNE_FINE) {
+                    log.add(name + " debe pagar " + FORTUNE_FINE + " pero no tiene fondos suficientes.");
+                    UNABLE_TO_PAY.add(player);   // Game eliminates them, same as with taxes
+                    return;
+                }
+                log.add(name + " paga " + FORTUNE_FINE + ".");
+                log.add("Confirme su transacción.");
+                runWithConfirmation(log, () -> bank.removeMoney(player, FORTUNE_FINE));
+                break;
+            case 5: // Ve a Candy Street
+                goToSquare(player, bank, log, board, CANDY_STREET);
+                break;
+            default:
+                break;
+        }
+    }
+
     // --------------------------------------------------------------- helpers
 
     /**
@@ -130,6 +177,45 @@ public final class EventManager {
             log.add("Tarjeta no válida. Confirme su transacción.");
         }
         log.add("Transacción confirmada.");
+    }
+
+    // Moves the player and applies the squares' reactions, like a normal move.
+    private static void moveAndResolve(Player player, Bank bank, GameLog log, Board board,
+                                       int steps, boolean triggerPassed) {
+        MoveResult result = board.movePlayer(player, steps);
+
+        if (triggerPassed) {
+            for (Casilla passed : result.getPassedSquares()) {
+                passed.onPass(player, bank, log);
+            }
+        }
+
+        Casilla landing = result.getLandingSquare();
+        log.add(log.nameOf(player) + " cae en " + landing.getName() + ".");
+        landing.onLand(player, bank, log);
+    }
+
+    // Moves the player forward to the square with the given name.
+    private static void goToSquare(Player player, Bank bank, GameLog log, Board board,
+                                   String squareName) {
+        int target = -1;
+        for (int i = 0; i < board.getSize(); i++) {
+            if (board.getCasilla(i).getName().equalsIgnoreCase(squareName)) {
+                target = i;
+                break;
+            }
+        }
+        if (target < 0) {
+            log.add("No se encontró la casilla " + squareName + ".");
+            return;
+        }
+
+        int current = board.getCurrentCasilla(player).getPosition();
+        int steps = (target - current + board.getSize()) % board.getSize();
+        if (steps == 0) {
+            return;   // already there
+        }
+        moveAndResolve(player, bank, log, board, steps, true);   // collects Go if it passes it
     }
 
     private static String lowerFirst(String text) {
