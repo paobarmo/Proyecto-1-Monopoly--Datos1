@@ -18,6 +18,7 @@ public class PlayerInfoPanel extends JPanel {
     private static final int PANEL_WIDTH = 280;
     private static final int PANEL_HEIGHT = 120;
     private static final int CIRCLE_DIAMETER = 56;
+    private static final int FRAME_THICKNESS = 4;
     private static final int PADDING = 20;
     private static final Color BACKGROUND = new Color(52, 38, 62);
     private static final Color GOLD = new Color(222, 180, 116);
@@ -71,6 +72,14 @@ public class PlayerInfoPanel extends JPanel {
         int circleY = (height - CIRCLE_DIAMETER) / 2;
         if (avatarPlayerIndex >= 0) {
             AvatarSprites.draw(g2, avatarPlayerIndex, PADDING, circleY, CIRCLE_DIAMETER);
+
+            // I added a color frame around the player, for clarity to who is who.
+            java.awt.Stroke previousStroke = g2.getStroke();
+            g2.setColor(playerColor);
+            g2.setStroke(new java.awt.BasicStroke(FRAME_THICKNESS));
+            g2.drawRect(PADDING - FRAME_THICKNESS / 2, circleY - FRAME_THICKNESS / 2,
+                    CIRCLE_DIAMETER + FRAME_THICKNESS, CIRCLE_DIAMETER + FRAME_THICKNESS);
+            g2.setStroke(previousStroke);
         } else {
             g2.setColor(playerColor);
             g2.fillOval(PADDING, circleY, CIRCLE_DIAMETER, CIRCLE_DIAMETER);
