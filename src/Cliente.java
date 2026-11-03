@@ -117,8 +117,15 @@ public class Cliente implements Closeable {
                 return "  " + p[1] + ". " + p[2];
             case "FIN_TRANSACCIONES":
                 return "-----";
+
             case "FIN":
-                return "##### FIN DE LA PARTIDA: gana " + p[2] + " (" + p[3] + ", patrimonio " + p[4] + ") #####";
+                if (p.length > 3 && p[3].equals("DESCONEXION")) {
+                    return "PARTIDA CANCELADA: un jugador perdió la conexión.";
+                }
+
+                return "##### FIN DE LA PARTIDA: gana " + p[2]
+                        + " (" + p[3] + ", patrimonio " + p[4] + ") #####";
+
             case "OK":
                 return "";
             case "ERROR":
