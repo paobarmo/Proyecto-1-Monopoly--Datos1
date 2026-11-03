@@ -2,10 +2,6 @@ import java.awt.CardLayout;
 import java.awt.Dimension;
 import java.io.IOException;
 import javax.swing.JFrame;
-import javax.swing.AbstractAction;
-import javax.swing.JComponent;
-import javax.swing.KeyStroke;
-import java.awt.event.ActionEvent;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.JPanel;
@@ -16,7 +12,7 @@ public class MonopolyApp {
     private static final String MENU_SCREEN = "MENU";
     private static final String PLAYERS_SCREEN = "PLAYERS";
     private static final String GAME_SCREEN = "GAME";
-    // Arranque habitual: RFID simulado. Arranque con --hardware: Pico física.
+    // --hardware activa la Pico física para dados y RFID.
     private static boolean usarHardware = false;
 
     public static void main(String[] args) {
@@ -66,13 +62,18 @@ public class MonopolyApp {
      * Modo local: todos los jugadores usan una sola ventana.
      * No utiliza DiceTestWindow ni ConsoleCardReader.
      * Con --hardware: dados y RFID desde la Pico W (TCP 5001).
-     * Sin --hardware: ESPACIO para dados y tarjetas simuladas sin pedir UID.
+     * Sin --hardware: avisa que se necesita la Pico (ya no acepta teclado).
      */
     private static void startLocal(JFrame frame, JPanel screens, CardLayout layout,
                                    int playerCount) {
-        final long[] tarjetas = {57482001L, 2209842189L, 123L, 321L};
+        // El dado electrónico es obligatorio para jugar: sin Pico no hay tirada por teclado.
+        if (!usarHardware) {
+            HalloweenDialogs.mensaje(frame, "Pico W necesaria",
+                    "Para Jugar local, inicia con: java -cp compiled MonopolyApp --hardware");
+            return;
+        }
         final AtomicReference<Game> partida = new AtomicReference<>();
-        final RfidSocketReader lector = new RfidSocketReader(usarHardware ? null : tarjetas, 30_000L);
+        final RfidSocketReader lector = new RfidSocketReader(null, 30_000L);
         final CardReader lectorParaGame = () -> {
             // En modo sin hardware, identifica al jugador que tiene el turno.
             Game juego = partida.get();
@@ -105,17 +106,6 @@ public class MonopolyApp {
                 return;
             }
             juego.getLog().add("Modo local con Pico W. Usa el boton fisico para lanzar.");
-        } else {
-            // Permite probar el modo local sin Pico, sin abrir ningún botón de prueba.
-            Dado dado = new Dado();
-            panel.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
-                    .put(KeyStroke.getKeyStroke("SPACE"), "lanzar-local");
-            panel.getActionMap().put("lanzar-local", new AbstractAction() {
-                @Override public void actionPerformed(ActionEvent e) {
-                    panel.applyRoll(dado.lanzar() + dado.lanzar(), () -> { });
-                }
-            });
-            juego.getLog().add("Modo local sin Pico: ESPACIO para lanzar; RFID simulado.");
         }
 
         panel.setOnGameEnd(() -> {
