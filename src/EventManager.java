@@ -44,6 +44,8 @@ public final class EventManager {
         EVENTS.put("GO", EventManager::goEvent);
         EVENTS.put("PAY_TAXES", EventManager::payTaxesEvent);
         BOARD_EVENTS.put("GO_TO_JAIL", EventManager::goToJailEvent);
+        // Jail Visit had an error message because it was not registered, si I made it as nothing here.
+        EVENTS.put("JAIL_VISIT", (player, bank, log) -> { });
     }
 
     private EventManager() {
