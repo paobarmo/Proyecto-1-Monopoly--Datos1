@@ -22,9 +22,6 @@ import java.util.concurrent.ExecutionException;
 
 import javax.swing.BorderFactory;
 import javax.swing.JComponent;
-import javax.swing.AbstractAction;
-import javax.swing.KeyStroke;
-import java.awt.event.ActionEvent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
@@ -84,7 +81,12 @@ public class GamePanel extends JPanel {
     private int networkAnimationFrom;
     private int networkAnimationTo;
     private Timer networkStepTimer;
+    // Se espera el ESTADO oficial antes de retirar la posicion visual.
+    // Sin esto, al necesitar RFID la ficha vuelve a la posicion anterior.
+    private boolean networkMovementPendingState;
     private String[] networkNames;
+    private JDialog networkPurchaseDialog;
+    private JDialog cartaDialog;
     private int[] networkJailTurns;
     private JailPanel jailPanel;
 
@@ -155,9 +157,7 @@ public class GamePanel extends JPanel {
             }
 
             if (networkMode) {
-                if (!networkFinished && networkSender != null) {
-                    networkSender.accept(Protocolo.TERMINAR_PARTIDA);
-                }
+                solicitarFinPartidaEnRed();
             } else {
                 showVictory(game.getRichestPlayerIndexes());
             }
@@ -165,14 +165,58 @@ public class GamePanel extends JPanel {
 
         header.add(terminarPartida);
 
-
         boardPanel = new BoardPanel(game);
 
         add(header, BorderLayout.NORTH);
         add(boardPanel, BorderLayout.CENTER);
         add(buildLeftColumn(), BorderLayout.WEST);
         add(buildRightColumn(), BorderLayout.EAST);
+
+        // En local recibimos el log de Game; en red los mensajes LOG del servidor.
+        game.getLog().addListener(mensaje -> {
+            if (mensaje.startsWith("[CARTA] ")) {
+                SwingUtilities.invokeLater(() -> mostrarCartaEvento(mensaje.substring(8)));
+            }
+        });
     }
+
+    /** Popup no modal: no bloquea la red, ni una lectura RFID del banco. */
+    private void mostrarCartaEvento(String texto) {
+        if (cartaDialog != null) cartaDialog.dispose();
+        JDialog dialogo = new JDialog(SwingUtilities.getWindowAncestor(this),
+                "Carta Fortune", Dialog.ModalityType.MODELESS);
+        JPanel contenido = new JPanel(new BorderLayout(10, 12));
+        contenido.setBackground(CARD_BACKGROUND);
+        contenido.setBorder(BorderFactory.createEmptyBorder(25, 30, 25, 30));
+        JLabel titulo = new JLabel("CARTA DE EVENTO", SwingConstants.CENTER);
+        titulo.setFont(new Font("Georgia", Font.BOLD, 22));
+        titulo.setForeground(GOLD);
+        JLabel detalle = new JLabel("<html><center>" + escaparHtmlTexto(texto)
+                + "</center></html>", SwingConstants.CENTER);
+        detalle.setFont(new Font("Georgia", Font.PLAIN, 17));
+        detalle.setForeground(CREAM);
+        contenido.add(titulo, BorderLayout.NORTH);
+        contenido.add(detalle, BorderLayout.CENTER);
+        dialogo.setContentPane(contenido);
+        dialogo.setSize(440, 180);
+        // Mantener visible la carta sin tapar la ventana central de compra.
+        Window ventana = SwingUtilities.getWindowAncestor(this);
+        if (ventana != null) dialogo.setLocation(ventana.getX() + 20, ventana.getY() + 85);
+        else dialogo.setLocationRelativeTo(this);
+        dialogo.setFocusableWindowState(false);
+        cartaDialog = dialogo;
+        Timer cierre = new Timer(5500, e -> dialogo.dispose());
+        cierre.setRepeats(false);
+        dialogo.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override public void windowClosed(java.awt.event.WindowEvent e) {
+                cierre.stop();
+                if (cartaDialog == dialogo) cartaDialog = null;
+            }
+        });
+        cierre.start();
+        dialogo.setVisible(true);
+    }
+
 
     /** Inicializa el mismo tablero original en modo cliente de red. */
     public GamePanel(Game game, int localIndex, Consumer<String> sender) {
@@ -187,33 +231,76 @@ public class GamePanel extends JPanel {
         turnTimer.stop();
         timerLabel.setText("Esperando turno");
         turnLabel.setText("Esperando servidor");
-        // Los controles de red se manejan por teclado; no se agregan botones al diseño.
-        registerNetworkKey("SPACE", "tirar", Protocolo.TIRAR_DADOS);
-        registerNetworkKey("C", "comprar", Protocolo.COMPRAR_PROPIEDAD);
-        registerNetworkKey("N", "rechazar", Protocolo.NO_COMPRAR);
-        registerNetworkKey("F", "terminar", Protocolo.TERMINAR_TURNO);
-        game.getLog().add("Red: ESPACIO tirar dados; C comprar; N no comprar; F terminar turno; ESC pausa.");
+        game.getLog().add("Red (interfaz actualizada): compras por ventana; ESC pausa.");
     }
 
-    private void registerNetworkKey(String key, String actionName, String command) {
-        String name = "red_" + actionName;
-        getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(key), name);
-        getActionMap().put(name, new AbstractAction() {
-            @Override public void actionPerformed(ActionEvent e) {
-                if (canSendNetworkCommand(command)) networkSender.accept(command);
+    /** Ventana no modal para que los mensajes de la red sigan actualizando el tablero.
+     * El servidor envía PUEDE_COMPRAR únicamente al dueño del turno, por lo que
+     * no dependemos de que el índice del cliente esté sincronizado al milisegundo. */
+    private void mostrarDecisionCompra(String casilla, String precio) {
+        cerrarDecisionCompra();
+        if (!networkMode || networkFinished || !networkPendingPurchase) return;
+        final int turno = networkTurnIndex;
+        JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(this),
+                "Decidir compra", Dialog.ModalityType.MODELESS);
+        JPanel contenido = new JPanel(new java.awt.BorderLayout(10, 14));
+        contenido.setBorder(BorderFactory.createEmptyBorder(20, 24, 20, 24));
+        javax.swing.JLabel texto = new javax.swing.JLabel(
+                "<html><center>¿Comprar " + escaparHtmlTexto(casilla) + " por $"
+                        + escaparHtmlTexto(precio) + "?<br>Decide en 10 segundos.</center></html>");
+        contenido.add(texto, java.awt.BorderLayout.CENTER);
+        JPanel acciones = new JPanel(new FlowLayout());
+        javax.swing.JButton si = new javax.swing.JButton("Comprar");
+        javax.swing.JButton no = new javax.swing.JButton("No comprar");
+        si.addActionListener(e -> {
+            dialog.dispose();
+            if (networkPendingPurchase && networkTurnIndex == turno && networkSender != null)
+                networkSender.accept(Protocolo.COMPRAR_PROPIEDAD);
+        });
+        no.addActionListener(e -> {
+            dialog.dispose();
+            if (networkPendingPurchase && networkTurnIndex == turno && networkSender != null)
+                networkSender.accept(Protocolo.NO_COMPRAR);
+        });
+        acciones.add(si);
+        acciones.add(no);
+        contenido.add(acciones, java.awt.BorderLayout.SOUTH);
+        dialog.setContentPane(contenido);
+        dialog.setDefaultCloseOperation(javax.swing.WindowConstants.DISPOSE_ON_CLOSE);
+        dialog.pack();
+        dialog.setLocationRelativeTo(this);
+        networkPurchaseDialog = dialog;
+        Timer cierre = new Timer(10_000, e -> dialog.dispose());
+        cierre.setRepeats(false);
+        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override public void windowClosed(java.awt.event.WindowEvent e) {
+                cierre.stop();
+                if (networkPurchaseDialog == dialog) networkPurchaseDialog = null;
             }
         });
+        cierre.start();
+        dialog.setVisible(true);
+        dialog.toFront();
+        dialog.requestFocus();
     }
 
-    private boolean canSendNetworkCommand(String command) {
-        if (!networkMode || networkFinished || networkLocalIndex != networkTurnIndex) return false;
-        if (networkAnimationPlayer >= 0) return false;
-        switch (command) {
-            case Protocolo.TIRAR_DADOS: return !networkRolled;
-            case Protocolo.COMPRAR_PROPIEDAD:
-            case Protocolo.NO_COMPRAR: return networkPendingPurchase;
-            case Protocolo.TERMINAR_TURNO: return networkRolled && !networkPendingPurchase;
-            default: return false;
+    private String escaparHtmlTexto(String texto) {
+        return texto.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    /** Unico camino para el boton superior y la opcion de ESC. */
+    private void solicitarFinPartidaEnRed() {
+        if (networkMode && !networkFinished && networkSender != null) {
+            game.getLog().add("Solicitando terminar la partida al servidor...");
+            networkSender.accept(Protocolo.TERMINAR_PARTIDA);
+        }
+    }
+
+    private void cerrarDecisionCompra() {
+        if (networkPurchaseDialog != null) {
+            JDialog anterior = networkPurchaseDialog;
+            networkPurchaseDialog = null;
+            anterior.dispose();
         }
     }
 
@@ -233,14 +320,20 @@ public class GamePanel extends JPanel {
             if (progress[0] >= steps) {
                 networkStepTimer.stop();
                 networkAnimationPlayer = -1;
-                boardPanel.clearVisualPosition();
+                // Mantener la ficha en destino si el servidor sigue esperando RFID.
+                // ESTADO quitara esta posicion temporal cuando confirme la real.
+                if (!networkMovementPendingState) {
+                    boardPanel.clearVisualPosition();
+                }
                 refreshJail();
             }
         });
         networkStepTimer.setRepeats(true);
         if (steps == 0) {
             networkAnimationPlayer = -1;
-            boardPanel.clearVisualPosition();
+            if (!networkMovementPendingState) {
+                boardPanel.clearVisualPosition();
+            }
             refreshJail();
         } else {
             networkStepTimer.start();
@@ -265,6 +358,7 @@ public class GamePanel extends JPanel {
                     game.getLog().add("Partida compartida iniciada: " + p[1]);
                     break;
                 case "TURNO":
+                    cerrarDecisionCompra();
                     networkTurnIndex = Integer.parseInt(p[1]);
                     networkRolled = false;
                     networkPendingPurchase = false;
@@ -305,17 +399,34 @@ public class GamePanel extends JPanel {
                     if (p.length >= 4) {
                         boardPanel.setNetworkOwners(parseNetworkOwners(p[3]));
                     }
+                    // El servidor ya termino de resolver los efectos de la casilla.
+                    networkMovementPendingState = false;
+                    // Si la animacion aun corre, dejar que llegue al destino primero.
+                    if (networkAnimationPlayer == -1) {
+                        boardPanel.clearVisualPosition();
+                    }
                     break;
                 case "DADOS":
                     networkRolled = true;
+                    networkMovementPendingState = true;
                     animateNetworkRoll(Integer.parseInt(p[1]), Integer.parseInt(p[4]), Integer.parseInt(p[5]));
                     game.getLog().add("Dados: " + p[2] + "+" + p[3] + "; " + p[4] + " → " + p[5]);
                     break;
                 case "PUEDE_COMPRAR":
-                    networkPendingPurchase = true;
-                    game.getLog().add("Puedes comprar " + p[1] + " por $" + p[2]);
+                    // Oferta privada: el servidor la envía solo al cliente del turno.
+                    if (p.length >= 3) {
+                        networkPendingPurchase = true;
+                        game.getLog().add("Oferta de compra: " + p[1] + " por $" + p[2]);
+                        mostrarDecisionCompra(p[1], p[2]);
+                    }
+                    break;
+                case "CIERRE_TURNO":
+                    secondsLeft = Integer.parseInt(p[1]);
+                    updateTimerLabel();
+                    if (!turnTimer.isRunning()) turnTimer.start();
                     break;
                 case "COMPRA":
+                    cerrarDecisionCompra();
                     networkPendingPurchase = false;
                     game.getLog().add(p[2]);
                     break;
@@ -324,6 +435,11 @@ public class GamePanel extends JPanel {
                     break;
 
                 case "FIN":
+                    cerrarDecisionCompra();
+                    networkMovementPendingState = false;
+                    if (networkStepTimer != null) networkStepTimer.stop();
+                    networkAnimationPlayer = -1;
+                    boardPanel.clearVisualPosition();
                     networkFinished = true;
                     gameEnded = true;
                     turnTimer.stop();
@@ -356,16 +472,8 @@ public class GamePanel extends JPanel {
                         );
                     }
 
-                    if ("EVENTO".equals(p[0])
-                            && mensaje.contains("se ha desconectado")) {
-
-                        javax.swing.JOptionPane.showMessageDialog(
-                                this,
-                                mensaje + "\nEl juego continuará con los jugadores restantes.",
-                                "Jugador desconectado",
-                                javax.swing.JOptionPane.INFORMATION_MESSAGE
-                        );
-                    }
+                    // La desconexion queda en el registro. No abrir un modal
+                    // aqui: bloquearia la lectura del siguiente FIN de victoria.
                     break;
 
                 case "ELIMINADO":
@@ -487,6 +595,8 @@ public class GamePanel extends JPanel {
                             if (game.isEliminated(playerIndex) || game.isGameOver()) {
                                 finishMove(onFinished);   // eliminated: no purchase is offered
                             } else {
+                                // La carta puede haber movido la ficha a otra casilla.
+                                boardPanel.setVisualPosition(playerIndex, game.getPlayerPosition(playerIndex));
                                 offerPurchase(() -> finishMove(onFinished));
                             }
                         });
@@ -526,10 +636,19 @@ public class GamePanel extends JPanel {
             return;
         }
 
-        int answer = javax.swing.JOptionPane.showConfirmDialog(this,
+        javax.swing.JOptionPane selector = new javax.swing.JOptionPane(
                 buyerName + ", ¿quieres comprar " + property.getName() + " por $" + price + "?\n"
-                        + "Tu saldo: $" + balance,
-                "Comprar propiedad", javax.swing.JOptionPane.YES_NO_OPTION);
+                        + "Tu saldo: $" + balance + "\nTienes 10 segundos para decidir.",
+                javax.swing.JOptionPane.QUESTION_MESSAGE, javax.swing.JOptionPane.YES_NO_OPTION);
+        JDialog dialogo = selector.createDialog(this, "Comprar propiedad");
+        Timer cierre = new Timer(10_000, e -> dialogo.dispose());
+        cierre.setRepeats(false);
+        cierre.start();
+        dialogo.setVisible(true);
+        cierre.stop();
+        Object seleccionado = selector.getValue();
+        int answer = seleccionado instanceof Integer ? (Integer) seleccionado
+                : javax.swing.JOptionPane.NO_OPTION;
 
         if (answer != javax.swing.JOptionPane.YES_OPTION) {
             game.getLog().add(buyerName + " decidió no comprar " + property.getName() + ".");
@@ -720,7 +839,7 @@ public class GamePanel extends JPanel {
         }
         if (choice == 1) {
             if (networkMode) {
-                networkSender.accept(Protocolo.TERMINAR_PARTIDA);   // the server answers with FIN
+                solicitarFinPartidaEnRed();   // el servidor responde FIN a todos
             } else {
                 game.getLog().add("Partida terminada antes de tiempo.");
                 showVictory(game.getRichestPlayerIndexes());

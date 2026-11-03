@@ -444,7 +444,7 @@ public class BoardPanel extends JPanel {
             AvatarSprites.draw(token, player, x, y, diameter);
             token.setClip(null);
             token.setStroke(new BasicStroke(Math.max(1f, diameter * 0.075f)));
-            token.setColor(new Color(219, 178, 111));
+            token.setColor(PlayerColors.forPlayer(player));
             token.draw(new Ellipse2D.Double(x + 1, y + 1, diameter - 2, diameter - 2));
             token.dispose();
         }

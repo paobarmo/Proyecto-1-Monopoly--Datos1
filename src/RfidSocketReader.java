@@ -19,6 +19,9 @@ public class RfidSocketReader implements CardReader {
     private final BlockingQueue<Long> cola = new LinkedBlockingQueue<>();
     private volatile int jugadorActual = -1;
     private volatile boolean esperandoRFID = false;
+    // Marcador reservado para despertar poll() al solicitar fin de partida.
+    private static final long UID_CANCELACION = Long.MIN_VALUE;
+    private volatile boolean cancelarSolicitado = false;
     private volatile IntConsumer alEsperar = i -> { };
 
     /** @param tarjetasSimuladas ids por índice de jugador, o null para usar el lector físico */
@@ -50,8 +53,19 @@ public class RfidSocketReader implements CardReader {
         cola.clear();
     }
 
+    /** Interrumpe una espera RFID sin registrar ninguna tarjeta ficticia.
+     * Se invoca cuando un jugador solicita terminar la partida.
+     */
+    public void cancelarEspera() {
+        cancelarSolicitado = true;
+        cola.clear();
+        cola.offer(UID_CANCELACION);
+    }
+
     @Override
     public OptionalLong readCardId() {
+        // Si ya se pidio terminar, ningun pago pendiente se puede autorizar.
+        if (cancelarSolicitado) return OptionalLong.empty();
         int i = jugadorActual;
         if (tarjetasSimuladas != null) {
             return (i >= 0 && i < tarjetasSimuladas.length)
@@ -61,8 +75,11 @@ public class RfidSocketReader implements CardReader {
         esperandoRFID = true;
         try {
             alEsperar.accept(i);
+            if (cancelarSolicitado) return OptionalLong.empty();
             Long uid = cola.poll(esperaMs, TimeUnit.MILLISECONDS);
-            return uid == null ? OptionalLong.empty() : OptionalLong.of(uid);
+            if (cancelarSolicitado || uid == null || uid == UID_CANCELACION)
+                return OptionalLong.empty();
+            return OptionalLong.of(uid);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return OptionalLong.empty();

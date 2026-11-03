@@ -37,6 +37,7 @@ public class Servidor {
     private final int tiempoTurnoSeg;
     private final RfidSocketReader lector;
     private final FabricaMotor fabrica;
+    private static final int DECISION_SECONDS = 10;
 
     private final Object lock = new Object();
     private final List<Manejador> jugadores = new ArrayList<>();
@@ -188,6 +189,12 @@ public class Servidor {
     private void desconectar(Manejador m) {
         todos.remove(m);
         m.cerrar();
+        // En una partida de dos, si un jugador sale durante la lectura RFID,
+        // desbloquear esa lectura para anunciar inmediatamente al superviviente.
+        if (m.indice >= 0 && nJugadores == 2 && iniciada && !terminada
+                && motor != null && motor.activo(m.indice)) {
+            lector.cancelarEspera();
+        }
 
         synchronized (lock) {
             if (m.indice < 0 || !jugadores.contains(m)) {
@@ -216,26 +223,16 @@ public class Servidor {
 
             motor.eliminar(m.indice);
 
-            if (nJugadores > 2) {
-                broadcast("EVENTO|" + m.nombre + " se ha desconectado.");
-            }
+            // Una desconexion elimina al jugador, pero no cancela la partida.
+            // Si queda uno solo, verificarFin envia FIN con su nombre (victoria).
+            broadcast("EVENTO|" + m.nombre + " se ha desconectado.");
             broadcast("ELIMINADO|" + m.indice + "|" + m.nombre);
-
-            if (nJugadores == 2) {
-                terminada = true;
-                cancelarTemporizador();
-
-                broadcast(estado());
-                broadcast("FIN|-1|Partida cancelada|DESCONEXION|0");
-                return;
-            }
-
-            broadcast(estado());
 
             if (verificarFin(false)) {
                 return;
             }
 
+            broadcast(estado());
             if (eraSuTurno) {
                 avanzar();
             }
@@ -256,15 +253,24 @@ public class Servidor {
     }
 
     private void programarTemporizador(int turno) {
+        programarTemporizador(turno, tiempoTurnoSeg);
+    }
+
+    private void programarTemporizador(int turno, int segundos) {
         cancelarTemporizador();
         temporizador = reloj.schedule(() -> {
             synchronized (lock) {
                 if (!terminada && turno == numTurno) {
-                    broadcast("EVENTO|Se acabó el tiempo de " + jugadores.get(motor.turnoActual()).nombre);
+                    if (pendienteCompra) {
+                        broadcast("EVENTO|Tiempo agotado: no se compró la propiedad");
+                        pendienteCompra = false;
+                    } else {
+                        broadcast("EVENTO|Se acabó el tiempo de " + jugadores.get(motor.turnoActual()).nombre);
+                    }
                     avanzar();
                 }
             }
-        }, tiempoTurnoSeg, TimeUnit.SECONDS);
+        }, segundos, TimeUnit.SECONDS);
     }
 
     private void cancelarTemporizador() {
@@ -344,6 +350,12 @@ public class Servidor {
             if (m.dispositivo) {
                 comandoDispositivo(m, cmd, p);
                 return;
+            }
+            // TERMINAR_PARTIDA debe poder cortar una espera RFID que mantenga
+            // ocupado el lock del juego. La validacion real sigue en terminarAnticipada.
+            if (Protocolo.TERMINAR_PARTIDA.equals(cmd) && m.indice >= 0
+                    && iniciada && !terminada && motor != null && motor.activo(m.indice)) {
+                lector.cancelarEspera();
             }
             synchronized (lock) {
                 switch (cmd) {
@@ -467,6 +479,11 @@ public class Servidor {
         } else if (pendienteCompra) {
             m.enviar("PUEDE_COMPRAR|" + Protocolo.limpiar(l.casilla) + "|" + r.precio);
         }
+        // Cerrar turno diez segundos después de resolver la casilla.
+        if (!terminada && !yoEliminado) {
+            broadcast("CIERRE_TURNO|" + DECISION_SECONDS);
+            programarTemporizador(numTurno, DECISION_SECONDS);
+        }
     }
 
     /**
@@ -522,9 +539,9 @@ public class Servidor {
         boolean huboEliminacion = eliminarSinSaldo();   // comprar con todo el dinero -> saldo 0
         broadcast(estado());
         m.enviar("OK|COMPRA");
-        if (huboEliminacion && !verificarFin(false) && !motor.activo(m.indice)) {
-            avanzar();
-        }
+        // La compra ya se resolvió: avanzar inmediatamente al siguiente jugador.
+        if (huboEliminacion && verificarFin(false)) return;
+        avanzar();
     }
 
     private void noComprar(Manejador m) throws ErrorJuego {
@@ -535,6 +552,7 @@ public class Servidor {
         pendienteCompra = false;
         broadcast("EVENTO|" + m.nombre + " decidió no comprar");
         m.enviar("OK|NO_COMPRAR");
+        avanzar();
     }
 
     private void consultarTransacciones(Manejador m) throws ErrorJuego {
